@@ -1,0 +1,118 @@
+//
+//  ApiClient.swift
+//  AntiPhishing
+//
+//  Port of the Kotlin ApiClient. Handles HTTP communication with the Flask
+//  backend. Only used when IS_LOCAL == false.
+//
+//  Endpoints:
+//    POST /api/check      → Check a URL from link interception
+//    POST /api/qr/check   → Check a URL decoded from a QR code
+//    POST /api/qr/report  → Save a QR scan result
+//    POST /api/score      → ML scoring from lexical feature vector (Step 3)
+//
+
+import Foundation
+
+enum ApiClient {
+
+    // Change this to your Flask server before testing.
+    private static let baseURL = "http://10.100.102.6:5000"
+    private static let timeout: TimeInterval = 10
+
+    // MARK: Public API
+
+    static func checkUrl(_ url: String) async -> CheckResult {
+        await post(path: "/api/check", body: ["url": url], serverLabel: "server")
+    }
+
+    static func checkQrUrl(_ url: String) async -> CheckResult {
+        await post(path: "/api/qr/check", body: ["url": url], serverLabel: "server")
+    }
+
+    /// Fire-and-forget QR report.
+    static func reportQrScan(url: String, result: CheckResult) async {
+        var confidence = 0
+        var source = ""
+        var matchType = "error"
+        var isMalicious = false
+
+        switch result {
+        case .malicious(_, let s, let c, let m):
+            isMalicious = true; confidence = c; source = s ?? ""; matchType = m
+        case .whitelisted:
+            confidence = 100; matchType = "whitelist"
+        case .unknown:
+            matchType = "unknown"
+        case .error:
+            matchType = "error"
+        }
+
+        let body: [String: Any] = [
+            "url": url,
+            "is_malicious": isMalicious,
+            "confidence": confidence,
+            "source": source,
+            "match_type": matchType
+        ]
+        _ = await rawPost(path: "/api/qr/report", body: body)
+    }
+
+    /// Step 3 — send the URL and its lexical feature vector to the ML model.
+    static func scoreLexical(_ url: String, features: [String: Double]) async -> CheckResult {
+        let body: [String: Any] = ["url": url, "features": features]
+        return await post(path: "/api/score", body: body, serverLabel: "ML server")
+    }
+
+    // MARK: Helpers
+
+    private static func post(path: String, body: [String: Any], serverLabel: String) async -> CheckResult {
+        guard let (data, code) = await rawPost(path: path, body: body) else {
+            return .error(message: "Could not reach \(serverLabel)")
+        }
+        guard code == 200 else {
+            return .error(message: "\(serverLabel) returned HTTP \(code)")
+        }
+        return parseResponse(data)
+    }
+
+    private static func rawPost(path: String, body: [String: Any]) async -> (Data, Int)? {
+        guard let url = URL(string: baseURL + path) else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = timeout
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            return (data, code)
+        } catch {
+            return nil
+        }
+    }
+
+    private static func parseResponse(_ data: Data) -> CheckResult {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .error(message: "Invalid server response")
+        }
+        let isMalicious = obj["is_malicious"] as? Bool ?? false
+        let confidence = obj["confidence"] as? Int ?? 0
+        let matchType = obj["match_type"] as? String ?? ""
+        let sourceRaw = obj["source"] as? String
+        let source = (sourceRaw?.isEmpty == false && sourceRaw != "null") ? sourceRaw : nil
+        let explanation = obj["explanation"] as? String ?? ""
+        let category = obj["category"] as? String ?? ""
+        let description = obj["description"] as? String ?? ""
+
+        if matchType == "whitelist" {
+            return .whitelisted(description: description, category: category)
+        } else if isMalicious {
+            return .malicious(explanation: explanation, source: source, confidence: confidence, matchType: matchType)
+        } else {
+            return .unknown(explanation: explanation)
+        }
+    }
+}
