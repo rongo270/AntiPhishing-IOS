@@ -16,9 +16,16 @@ import Foundation
 
 enum ApiClient {
 
-    // Change this to your Flask server before testing.
-    private static let baseURL = "http://10.100.102.6:5000"
-    private static let timeout: TimeInterval = 10
+    // Live Flask backend (same server the Android app uses).
+    // For a local Flask server use e.g. "http://10.100.102.6:5000" — but note
+    // iOS App Transport Security blocks plain http:// unless you add an ATS
+    // exception, so prefer the https:// production URL.
+    private static let baseURL = "https://antiphishing-backend.onrender.com"
+
+    // Long timeout on purpose: Render's free tier sleeps after ~15 min idle and
+    // takes ~50s to wake on the first request — mirrors the Android client's
+    // 60s read timeout so cold starts don't spuriously fail.
+    private static let timeout: TimeInterval = 60
 
     // MARK: Public API
 

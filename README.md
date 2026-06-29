@@ -35,9 +35,11 @@ warning screens.
 
 ## Check pipeline (identical to Android)
 
-1. **Step 1 — Lists:** the URL is checked against the local whitelist/blacklist
-   (`IS_LOCAL = true`, matching the Android dev mode). Set `IS_LOCAL = false`
-   in `CheckPipeline.swift` to use the Flask server via `ApiClient.swift`.
+1. **Step 1 — Backend check:** by default (`IS_LOCAL = false` in
+   `CheckPipeline.swift`) the URL is sent to the live Flask backend via
+   `ApiClient.swift` — the same `https://antiphishing-backend.onrender.com`
+   server the Android app uses. Set `IS_LOCAL = true` for offline development,
+   which uses the bundled `LocalUrlLists` whitelist/blacklist instead.
 2. **Step 2 — Lexical analysis:** for unknown URLs, the on-device
    `LexicalAnalyzer` runs ~25 checks (length, subdomains, typosquatting,
    homograph/punycode, encoding attacks, suspicious TLDs/keywords, entropy…).
@@ -85,6 +87,12 @@ AntiPhishing/
    QR scanner, and manual link check work immediately — no extra setup.
    (QR scanning requires a real device or a simulator with a camera; the
    camera-permission string is already configured.)
+3. Turning on **Active Protection** shows a short setup screen — the iOS-honest
+   equivalent of Android's "grant the browser role" step. It explains how iOS
+   checks links (Share → AntiPhishing, QR, manual paste) and offers **Open
+   Settings**. When you return to the app it runs a live check to verify the
+   pipeline works and confirms "Protection active". Safe or user-continued
+   links open in Safari.
 
 ### Adding the Share Extension (the "interception" piece)
 
@@ -111,13 +119,39 @@ After that, "AntiPhishing" appears in the iOS share sheet for any link.
 
 ---
 
-## Switching to the Flask server
+## Backend & offline mode
 
-Set `IS_LOCAL = false` in `CheckPipeline.swift` and update `baseURL` in
-`ApiClient.swift`. The endpoints (`/api/check`, `/api/qr/check`, `/api/qr/report`,
-`/api/score`) mirror the Android client exactly. Note iOS App Transport
-Security blocks plain `http://` by default — use `https://` or add an ATS
-exception for local testing.
+By default the app talks to the live Flask backend
+`https://antiphishing-backend.onrender.com` (the same server Android uses).
+The endpoints (`/api/check`, `/api/qr/check`, `/api/qr/report`, `/api/score`)
+mirror the Android client exactly, and `ApiClient.swift` uses a 60-second
+timeout because Render's free tier sleeps when idle and takes ~50s to wake on
+the first request.
+
+To work fully offline, set `IS_LOCAL = true` in `CheckPipeline.swift`; the
+bundled `LocalUrlLists` whitelist/blacklist is used instead of the server. If
+you point `baseURL` at a local `http://` server, add an App Transport Security
+exception — iOS blocks plain `http://` by default.
+
+---
+
+## Tests
+
+A unit-test target (`AntiPhishingTests`) covers the ported logic: the
+`LexicalAnalyzer` risk engine and its feature vector, the local
+whitelist/blacklist, the pipeline's history mapping and URL extraction, the
+`HistoryStore` FIFO/dedupe behaviour, and live backend connectivity.
+
+Run them in Xcode with **⌘U**, or from the command line:
+
+```sh
+xcodebuild test -scheme AntiPhishing \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+```
+
+The live-network tests live in `ApiClientLiveTests`; skip them for a purely
+offline run with
+`-skip-testing:AntiPhishingTests/ApiClientLiveTests`.
 
 ---
 

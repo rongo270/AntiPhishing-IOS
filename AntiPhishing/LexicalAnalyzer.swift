@@ -337,8 +337,11 @@ enum LexicalAnalyzer {
 
         // MARK: 6. ADVANCED PHISHING PATTERNS
 
-        // Punycode / Internationalized domain
-        let isPunycode = host.contains("xn--")
+        // Punycode / Internationalized domain.
+        // Apple's URLComponents decodes an `xn--` host into its Unicode form,
+        // so — unlike Android's java.net.URI — the parsed `host` may not contain
+        // "xn--". Check the raw host string too, to keep parity with Android.
+        let isPunycode = host.contains("xn--") || extractHostFallback(url).contains("xn--")
         if isPunycode {
             score += 22; flags.append("🚨 Punycode/internationalized domain detected — attackers use non-Latin characters that look identical to real brand names")
         }

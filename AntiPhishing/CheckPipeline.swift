@@ -14,9 +14,10 @@
 
 import Foundation
 
-/// Set to true to use local URL lists instead of the Flask server
-/// (matches `const val IS_LOCAL = true` on Android).
-let IS_LOCAL = true
+/// When false, the pipeline checks URLs against the live Flask backend via
+/// `ApiClient` — exactly like the Android app. Set to true only for offline
+/// development, which uses the bundled `LocalUrlLists` instead of the server.
+let IS_LOCAL = false
 
 enum CheckPipeline {
 

@@ -54,7 +54,20 @@ enum L10n {
         "point_camera": "Point your camera at a QR code",
         "camera_permission": "Camera permission is required to scan QR codes",
         "close": "Close",
-        "no_link_found": "No valid link found in the text."
+        "no_link_found": "No valid link found in the text.",
+        // Activation flow
+        "activate_title": "Activate Protection",
+        "activate_intro": "iOS protects links a little differently from Android.",
+        "activate_step_share": "Open any link with Share → AntiPhishing (Safari, Messages, WhatsApp, Mail…) to check it first.",
+        "activate_step_qr": "Or scan a QR code, or paste a link on the home screen.",
+        "activate_step_safe": "Safe links — and ones you choose to continue — open in Safari.",
+        "activate_note": "Note: iOS only lets official browser apps become the default, so AntiPhishing checks links through the Share menu instead of replacing your browser.",
+        "open_settings": "Open Settings",
+        "activate_done": "Activate Protection",
+        "verifying_protection": "Checking that protection works…",
+        "protection_active_banner": "✅ Protection active — link checking works",
+        "protection_active_offline": "⚠️ Protection on, but the checking service is unreachable",
+        "protection_off_banner": "Protection turned off"
     ]
 
     private static let he: [String: String] = [
@@ -99,7 +112,20 @@ enum L10n {
         "point_camera": "כוון את המצלמה אל קוד QR",
         "camera_permission": "נדרשת הרשאת מצלמה כדי לסרוק קודי QR",
         "close": "סגור",
-        "no_link_found": "לא נמצא קישור תקין בטקסט."
+        "no_link_found": "לא נמצא קישור תקין בטקסט.",
+        // Activation flow
+        "activate_title": "הפעלת הגנה",
+        "activate_intro": "ב-iOS ההגנה על קישורים עובדת מעט אחרת מאשר באנדרואיד.",
+        "activate_step_share": "פתח כל קישור דרך שיתוף ← AntiPhishing (Safari, הודעות, WhatsApp, דוא\"ל…) כדי לבדוק אותו תחילה.",
+        "activate_step_qr": "או סרוק קוד QR, או הדבק קישור במסך הבית.",
+        "activate_step_safe": "קישורים בטוחים — ואלה שתבחר להמשיך אליהם — ייפתחו ב-Safari.",
+        "activate_note": "הערה: iOS מתיר רק לאפליקציות דפדפן רשמיות להיות ברירת המחדל, ולכן AntiPhishing בודקת קישורים דרך תפריט השיתוף במקום להחליף את הדפדפן.",
+        "open_settings": "פתח הגדרות",
+        "activate_done": "הפעל הגנה",
+        "verifying_protection": "בודק שההגנה פועלת…",
+        "protection_active_banner": "✅ ההגנה פעילה — בדיקת הקישורים עובדת",
+        "protection_active_offline": "⚠️ ההגנה פעילה, אך שירות הבדיקה אינו זמין",
+        "protection_off_banner": "ההגנה כובתה"
     ]
 
     static func string(_ key: String, _ lang: AppLanguage) -> String {
