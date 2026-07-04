@@ -10,9 +10,23 @@
 //    POST /api/qr/check   → Check a URL decoded from a QR code
 //    POST /api/qr/report  → Save a QR scan result
 //    POST /api/score      → ML scoring from lexical feature vector (Step 3)
+//    GET  /api/stats      → DB counters (used as the protection-database
+//                           update-check signal; the server has no bulk
+//                           download or version endpoint)
 //
 
 import Foundation
+
+/// Response of GET /api/stats — the server's database counters.
+/// `maliciousDomains` doubles as the freshness signal for the local
+/// protection database: when it differs from the snapshot stored at the last
+/// sync, the server's threat data has changed since we last downloaded.
+struct ServerStats: Equatable, Sendable {
+    let maliciousUrls: Int
+    let maliciousDomains: Int
+    let whitelistedDomains: Int
+    let cachedChecks: Int
+}
 
 enum ApiClient {
 
@@ -63,6 +77,28 @@ enum ApiClient {
             "match_type": matchType
         ]
         _ = await rawPost(path: "/api/qr/report", body: body)
+    }
+
+    /// GET /api/stats. Returns nil when the server is unreachable — callers
+    /// treat that as "offline" and keep using local data. The short timeout is
+    /// deliberate: this runs at launch and must not hang the UI on Render
+    /// cold starts (a manual update retries with the same call anyway).
+    static func fetchStats(timeout: TimeInterval = 20) async -> ServerStats? {
+        guard let url = URL(string: baseURL + "/api/stats") else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return ServerStats(
+            maliciousUrls: obj["malicious_urls"] as? Int ?? 0,
+            maliciousDomains: obj["malicious_domains"] as? Int ?? 0,
+            whitelistedDomains: obj["whitelisted_domains"] as? Int ?? 0,
+            cachedChecks: obj["cached_checks"] as? Int ?? 0
+        )
     }
 
     /// Step 3 — send the URL and its lexical feature vector to the ML model.

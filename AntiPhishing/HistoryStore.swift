@@ -33,9 +33,10 @@ final class HistoryStore: ObservableObject {
 
     static let shared = HistoryStore()
 
-    /// App Group identifier — used to share data with the Share Extension.
-    /// Configure the same group in both target capabilities in Xcode.
-    static let appGroup = "group.ronyahav.antiphishing"
+    /// App Group identifier — single source of truth lives in SharedStore
+    /// (shared with the Safari Web Extension); this alias keeps existing
+    /// call sites working.
+    static let appGroup = SharedStore.appGroupID
 
     private let storageKey = "scanned_links"
     private let prefsKey = "AntiPhishingPrefs"

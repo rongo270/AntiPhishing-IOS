@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		AF000000000000000000000C /* AntiPhishing Web Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AF0000000000000000000001 /* AntiPhishing Web Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		87751CB9517C5182F6F8694D /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -14,22 +18,82 @@
 			remoteGlobalIDString = 0783C7CC2FD9BDBF00F53E65;
 			remoteInfo = AntiPhishing;
 		};
+		AF000000000000000000000D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0783C7C52FD9BDBF00F53E65 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AF0000000000000000000004;
+			remoteInfo = "AntiPhishing Web Extension";
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		AF000000000000000000000B /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				AF000000000000000000000C /* AntiPhishing Web Extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		0783C7CD2FD9BDBF00F53E65 /* AntiPhishing.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AntiPhishing.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AF0000000000000000000001 /* AntiPhishing Web Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "AntiPhishing Web Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		B4765F168A85B065F9E711CE /* AntiPhishingTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AntiPhishingTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		AF000000000000000000000F /* Exceptions for "AntiPhishingWebExtension" folder in "AntiPhishing Web Extension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				AntiPhishingWebExtension.entitlements,
+				Info.plist,
+			);
+			target = AF0000000000000000000004 /* AntiPhishing Web Extension */;
+		};
+		AF0000000000000000000010 /* Exceptions for "AntiPhishing" folder in "AntiPhishing" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				AntiPhishing.entitlements,
+			);
+			target = 0783C7CC2FD9BDBF00F53E65 /* AntiPhishing */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		0783C7CF2FD9BDBF00F53E65 /* AntiPhishing */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				AF0000000000000000000010 /* Exceptions for "AntiPhishing" folder in "AntiPhishing" target */,
+			);
 			path = AntiPhishing;
 			sourceTree = "<group>";
 		};
 		460073EF897A6DCAFF2238A1 /* AntiPhishingTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = AntiPhishingTests;
+			sourceTree = "<group>";
+		};
+		AF0000000000000000000002 /* AntiPhishingWebExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				AF000000000000000000000F /* Exceptions for "AntiPhishingWebExtension" folder in "AntiPhishing Web Extension" target */,
+			);
+			explicitFolders = (
+				Resources/_locales,
+				Resources/images,
+			);
+			path = AntiPhishingWebExtension;
+			sourceTree = "<group>";
+		};
+		AF0000000000000000000003 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -49,6 +113,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AF0000000000000000000009 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -56,6 +127,8 @@
 			isa = PBXGroup;
 			children = (
 				0783C7CF2FD9BDBF00F53E65 /* AntiPhishing */,
+				AF0000000000000000000003 /* Shared */,
+				AF0000000000000000000002 /* AntiPhishingWebExtension */,
 				460073EF897A6DCAFF2238A1 /* AntiPhishingTests */,
 				0783C7CE2FD9BDBF00F53E65 /* Products */,
 			);
@@ -65,6 +138,7 @@
 			isa = PBXGroup;
 			children = (
 				0783C7CD2FD9BDBF00F53E65 /* AntiPhishing.app */,
+				AF0000000000000000000001 /* AntiPhishing Web Extension.appex */,
 				B4765F168A85B065F9E711CE /* AntiPhishingTests.xctest */,
 			);
 			name = Products;
@@ -80,13 +154,16 @@
 				0783C7C92FD9BDBF00F53E65 /* Sources */,
 				0783C7CA2FD9BDBF00F53E65 /* Frameworks */,
 				0783C7CB2FD9BDBF00F53E65 /* Resources */,
+				AF000000000000000000000B /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				AF000000000000000000000E /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				0783C7CF2FD9BDBF00F53E65 /* AntiPhishing */,
+				AF0000000000000000000003 /* Shared */,
 			);
 			name = AntiPhishing;
 			packageProductDependencies = (
@@ -94,6 +171,29 @@
 			productName = AntiPhishing;
 			productReference = 0783C7CD2FD9BDBF00F53E65 /* AntiPhishing.app */;
 			productType = "com.apple.product-type.application";
+		};
+		AF0000000000000000000004 /* AntiPhishing Web Extension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AF0000000000000000000005 /* Build configuration list for PBXNativeTarget "AntiPhishing Web Extension" */;
+			buildPhases = (
+				AF0000000000000000000008 /* Sources */,
+				AF0000000000000000000009 /* Frameworks */,
+				AF000000000000000000000A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				AF0000000000000000000002 /* AntiPhishingWebExtension */,
+				AF0000000000000000000003 /* Shared */,
+			);
+			name = "AntiPhishing Web Extension";
+			packageProductDependencies = (
+			);
+			productName = "AntiPhishing Web Extension";
+			productReference = AF0000000000000000000001 /* AntiPhishing Web Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		5F064FA103071879D32E81BE /* AntiPhishingTests */ = {
 			isa = PBXNativeTarget;
@@ -135,6 +235,9 @@
 						CreatedOnToolsVersion = 26.4.1;
 						TestTargetID = 0783C7CC2FD9BDBF00F53E65;
 					};
+					AF0000000000000000000004 = {
+						CreatedOnToolsVersion = 26.4.1;
+					};
 				};
 			};
 			buildConfigurationList = 0783C7C82FD9BDBF00F53E65 /* Build configuration list for PBXProject "AntiPhishing" */;
@@ -152,6 +255,7 @@
 			projectRoot = "";
 			targets = (
 				0783C7CC2FD9BDBF00F53E65 /* AntiPhishing */,
+				AF0000000000000000000004 /* AntiPhishing Web Extension */,
 				5F064FA103071879D32E81BE /* AntiPhishingTests */,
 			);
 		};
@@ -166,6 +270,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		ED45149979669D7B56653B91 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AF000000000000000000000A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -189,6 +300,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AF0000000000000000000008 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -196,6 +314,11 @@
 			isa = PBXTargetDependency;
 			target = 0783C7CC2FD9BDBF00F53E65 /* AntiPhishing */;
 			targetProxy = 87751CB9517C5182F6F8694D /* PBXContainerItemProxy */;
+		};
+		AF000000000000000000000E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AF0000000000000000000004 /* AntiPhishing Web Extension */;
+			targetProxy = AF000000000000000000000D /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -321,6 +444,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "AntiPhishing/AntiPhishing.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 6NW2T987V4;
@@ -366,6 +490,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "AntiPhishing/AntiPhishing.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 6NW2T987V4;
@@ -403,6 +528,81 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				XROS_DEPLOYMENT_TARGET = 26.4;
+			};
+			name = Release;
+		};
+		AF0000000000000000000006 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "AntiPhishingWebExtension/AntiPhishingWebExtension.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6NW2T987V4;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "AntiPhishingWebExtension/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "AntiPhishing Web Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rongo.AntiPhishing.WebExtension;
+				PRODUCT_NAME = "AntiPhishing Web Extension";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		AF0000000000000000000007 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "AntiPhishingWebExtension/AntiPhishingWebExtension.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6NW2T987V4;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "AntiPhishingWebExtension/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "AntiPhishing Web Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rongo.AntiPhishing.WebExtension;
+				PRODUCT_NAME = "AntiPhishing Web Extension";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
 		};
@@ -475,6 +675,15 @@
 			buildConfigurations = (
 				0783C7D92FD9BDC000F53E65 /* Debug */,
 				0783C7DA2FD9BDC000F53E65 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AF0000000000000000000005 /* Build configuration list for PBXNativeTarget "AntiPhishing Web Extension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AF0000000000000000000006 /* Debug */,
+				AF0000000000000000000007 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

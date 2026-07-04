@@ -25,6 +25,13 @@ enum CheckPipeline {
     /// `useQrEndpoint` selects the /api/qr/check endpoint when running against the server.
     static func check(_ url: String, useQrEndpoint: Bool = false) async -> CheckResult {
 
+        // Step 0: local protection database (same data the Safari extension
+        // uses, shared via the App Group). Instant, private, and works
+        // offline — a hit here skips the server round-trip entirely.
+        if let localHit = checkProtectionDatabase(url) {
+            return localHit
+        }
+
         // Step 1
         let serverResult: CheckResult
         if IS_LOCAL {
@@ -61,6 +68,24 @@ enum CheckPipeline {
             // When the ML server is ready, replace the above with:
             // return await ApiClient.scoreLexical(url, features: lexical.features)
         }
+    }
+
+    /// Checks the downloaded malicious-domain database (if one has been
+    /// activated). Returns nil when the URL's domain is not listed or no
+    /// database exists yet.
+    static func checkProtectionDatabase(_ url: String) -> CheckResult? {
+        guard let host = DomainNormalizer.normalizeHost(from: url),
+              let dbURL = SharedStore.databaseURL,
+              SharedStore.databaseExists else { return nil }
+        let db = ProtectionDatabase(url: dbURL)
+        defer { db.close() }
+        guard let match = db.match(normalizedHost: host) else { return nil }
+        return .malicious(
+            explanation: "The domain \(match.matchedDomain) is listed as \(match.threatType) in the \(match.source) threat feed (on-device protection database).",
+            source: match.source,
+            confidence: 100,
+            matchType: "local_db"
+        )
     }
 
     /// Used in dev/local mode instead of hitting the Flask server.

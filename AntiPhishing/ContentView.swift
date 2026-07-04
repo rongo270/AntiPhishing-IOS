@@ -14,6 +14,7 @@ import UIKit
 struct ContentView: View {
     @StateObject private var settings = AppSettings.shared
     @StateObject private var history = HistoryStore.shared
+    @ObservedObject private var protectionCenter = ProtectionCenter.shared
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -72,6 +73,17 @@ struct ContentView: View {
                     .padding(16)
                     .background(Color(.secondarySystemBackground).opacity(0.5))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                    Spacer().frame(height: 16)
+
+                    // Safari Web Extension protection — status card + entry
+                    // to the database / allowlist / extension-setup screen.
+                    NavigationLink {
+                        SafariProtectionView().environmentObject(settings)
+                    } label: {
+                        safariProtectionCard
+                    }
+                    .buttonStyle(.plain)
 
                     Spacer().frame(height: 16)
 
@@ -188,7 +200,7 @@ struct ContentView: View {
             if !activationConfirmed { settings.isProtectionActive = false }
         }) {
             ActivationSetupView(
-                onOpenSettings: { openAppSettings() },
+                onOpenSettings: { openDefaultBrowserSettings() },
                 onDone: { finishActivation() }
             )
             .environmentObject(settings)
@@ -199,6 +211,16 @@ struct ContentView: View {
                 pendingSettingsReturn = false
                 finishActivation()
             }
+            // Pick up extension heartbeats / allowlist changes made while
+            // the app was in the background.
+            if phase == .active {
+                protectionCenter.refreshLocalState()
+            }
+        }
+        .task {
+            // First-launch bootstrap: downloads the protection database when
+            // none exists; otherwise a lightweight /api/stats freshness check.
+            await protectionCenter.runLaunchCheckIfNeeded()
         }
         .overlay(alignment: .bottom) {
             if let statusBanner {
@@ -217,6 +239,41 @@ struct ContentView: View {
         .animation(.easeInOut, value: statusBanner)
     }
 
+    // MARK: - Safari protection card
+
+    /// Compact dashboard summary of the Safari Web Extension protection.
+    private var safariProtectionCard: some View {
+        let visual = protectionCenter.summary.visual
+        return HStack(spacing: 12) {
+            Image(systemName: "safari.fill")
+                .font(.system(size: 26))
+                .foregroundStyle(AppColors.primary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L10n.string("safari_protection_title", lang))
+                    .font(.headline)
+                HStack(spacing: 5) {
+                    Image(systemName: visual.icon)
+                        .font(.caption)
+                        .foregroundStyle(visual.color)
+                    Text(L10n.string(visual.titleKey, lang))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+            if protectionCenter.updateActivity.isBusy {
+                ProgressView()
+            }
+            Image(systemName: "chevron.forward")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .background(Color(.secondarySystemBackground).opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
     // MARK: - Activation flow
 
     /// Called whenever the protection toggle changes.
@@ -233,10 +290,22 @@ struct ContentView: View {
         }
     }
 
-    private func openAppSettings() {
+    /// Opens iOS Settings → Apps → Default Apps (the default-browser picker)
+    /// directly, using the official iOS 18.3+ deep link
+    /// `app-settings:default-applications`. If that screen isn't available
+    /// (e.g. on some simulators), it falls back to the app's own Settings page.
+    private func openDefaultBrowserSettings() {
         pendingSettingsReturn = true
-        if let url = URL(string: UIApplication.openSettingsURLString) {
-            UIApplication.shared.open(url)
+        let defaultApps = URL(string: UIApplication.openDefaultApplicationsSettingsURLString)
+        let appSettings = URL(string: UIApplication.openSettingsURLString)
+        if let defaultApps {
+            UIApplication.shared.open(defaultApps) { success in
+                if !success, let appSettings {
+                    UIApplication.shared.open(appSettings)
+                }
+            }
+        } else if let appSettings {
+            UIApplication.shared.open(appSettings)
         }
     }
 

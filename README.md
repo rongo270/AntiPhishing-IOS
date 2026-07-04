@@ -56,7 +56,7 @@ warning screens.
 AntiPhishing/
 ├── AntiPhishing/                      ← main app target (auto-synced group)
 │   ├── AntiPhishingApp.swift          App entry point
-│   ├── ContentView.swift              Dashboard (port of MainActivity)
+│   ├── ContentView.swift              Dashboard (port of MainActivity) + Safari Protection card
 │   ├── LinkCheckView.swift            Checking → result flow for one URL
 │   ├── QRScannerView.swift            AVFoundation QR scanner (port of QrScannerActivity)
 │   ├── ResultView.swift               Warning screens (port of ResultScreen)
@@ -66,16 +66,37 @@ AntiPhishing/
 │   ├── LocalUrlLists.swift            Whitelist/blacklist (port of LocalUrlLists.kt)
 │   ├── CheckResult.swift              Result model (port of ApiClient.CheckResult)
 │   ├── CheckPipeline.swift            Pipeline coordinator + URL extraction
-│   ├── ApiClient.swift                Flask client (port of ApiClient.kt)
+│   ├── ApiClient.swift                Flask client (port of ApiClient.kt) + /api/stats
 │   ├── HistoryStore.swift             Scan history (port of Room DB / LinkDao)
 │   ├── AppSettings.swift              Prefs + language (port of SharedPreferences)
-│   ├── Localization.swift            EN/HE strings (port of string.xml)
-│   └── URLOpener.swift                Opens confirmed links (app target only)
+│   ├── Localization.swift             EN/HE strings (port of string.xml)
+│   ├── URLOpener.swift                Opens confirmed links (app target only)
+│   ├── SafariProtectionView.swift     Safari-protection status screen + enable guide
+│   ├── AllowlistView.swift            "Approved Domains" management screen
+│   ├── AntiPhishing.entitlements      App Group for the app target
+│   └── Protection/
+│       ├── ThreatFeed.swift           Threat-feed list mirrored from server seed_db.py
+│       ├── ProtectionUpdater.swift    Download → validate → atomically activate the DB
+│       └── ProtectionCenter.swift     Observable protection state machine for the UI
+├── Shared/                            ← compiled into BOTH app and Safari extension
+│   ├── SharedStore.swift              THE App-Group storage layer (paths, metadata, flags)
+│   ├── ProtectionMetadata.swift       Version/date/counts/hashes of the active DB
+│   ├── ProtectionDatabase.swift       SQLite malicious-domain DB (reader + writer)
+│   ├── DomainNormalizer.swift         One domain normalization everywhere (incl. punycode)
+│   └── AllowlistStore.swift           Shared "Continue Anyway" approvals (24h TTL)
+├── AntiPhishingWebExtension/          ← Safari Web Extension target (embedded in the app)
+│   ├── SafariWebExtensionHandler.swift  Native handler: local DB lookups, allowlist writes
+│   ├── Info.plist / *.entitlements
+│   └── Resources/
+│       ├── manifest.json              MV3; no host permissions — no network use at all
+│       ├── background.js              Verdict pipeline: cache → native checkDomain
+│       ├── content.js                 Warning page (Go Back / Continue Anyway)
+│       └── popup.html/js/css          Read-only protection status popup
 └── ShareExtensionFiles/               ← copy into a Share Extension target (see below)
     ├── ShareViewController.swift
     ├── ShareExtension-Info.plist
     ├── AntiPhishingShare.entitlements
-    └── AntiPhishing.entitlements      (App Group for the MAIN app target)
+    └── AntiPhishing.entitlements      (legacy copy for the Share-Extension guide)
 ```
 
 ---
@@ -90,9 +111,20 @@ AntiPhishing/
 3. Turning on **Active Protection** shows a short setup screen — the iOS-honest
    equivalent of Android's "grant the browser role" step. It explains how iOS
    checks links (Share → AntiPhishing, QR, manual paste) and offers **Open
-   Settings**. When you return to the app it runs a live check to verify the
+   Default Browser Settings**, which deep-links straight to *Settings ▸ Apps ▸
+   Default Apps* using the official iOS 18.3+ API
+   (`UIApplication.openDefaultApplicationsSettingsURLString` =
+   `app-settings:default-applications`), with a fallback to the app's own
+   Settings page. When you return to the app it runs a live check to verify the
    pipeline works and confirms "Protection active". Safe or user-continued
-   links open in Safari.
+   links open in your chosen default browser.
+
+   > Note: iOS only lets Apple-approved *full browser* apps (with the
+   > `com.apple.developer.web-browser` entitlement) be set as the default
+   > browser, so AntiPhishing itself won't appear in that list — the screen lets
+   > the user pick which browser safe links open in. There is no iOS API to make
+   > a non-browser app the system link handler or to detect default-browser
+   > status, which is why protection runs through Share/QR/manual instead.
 
 ### Adding the Share Extension (the "interception" piece)
 
@@ -116,6 +148,52 @@ Xcode itself, so the extension is delivered as source you add in three steps:
    lets them share the same scan history and settings.
 
 After that, "AntiPhishing" appears in the iOS share sheet for any link.
+
+---
+
+## Safari Web Extension protection
+
+The project now ships a **Safari Web Extension** (target `AntiPhishing Web
+Extension`, embedded in the app) that checks every page opened in Safari
+against a malicious-domain database stored **on the device** — links tapped in
+WhatsApp/Mail/Messages that open in Safari are covered automatically.
+
+How it works, end to end:
+
+1. **Database download (app).** The Flask server has no bulk-download
+   endpoint — its MongoDB is seeded from public threat feeds
+   (`scripts/seed_db.py`, re-run every 12 h). The app therefore downloads the
+   same feeds the server seeds from (`Protection/ThreatFeed.swift`) and
+   applies the same parsing/normalization rules. `GET /api/stats` supplies the
+   server-side domain count used to detect that the server's data moved on.
+2. **Storage.** 600k+ domains go into a SQLite file
+   (`protection.sqlite`) in the App Group container — exact B-tree lookups, no
+   RAM bloat, no Bloom-filter false positives. Per-domain feed source and
+   threat category are kept for the warning page.
+3. **Updates.** "Update Protection Database" re-checks the feeds with
+   conditional GETs (ETag/Last-Modified), rebuilds into a *staging* file,
+   validates (min domain count, SQLite integrity check, row count, SHA-256),
+   then swaps atomically. A failed update never touches the active database.
+4. **Extension lookups.** The extension's JavaScript can't read App Group
+   files, so `background.js` sends the URL to the native
+   `SafariWebExtensionHandler` (`sendNativeMessage`), which normalizes the
+   host, consults the shared allowlist, then the SQLite DB (exact host, then
+   parent domains). Safe verdicts are cached in `browser.storage.local` for
+   12 h, tagged with the DB version so a database update invalidates them.
+   **No page URL ever leaves the device from the extension.**
+5. **Warning page.** Malicious domains get a full-page AntiPhishing warning
+   (domain, threat category, listing feed). *Go Back* is the primary action;
+   *Continue Anyway* stores a 24-hour approval in the shared allowlist,
+   manageable in the app under **Safari Protection ▸ Approved Domains**.
+6. **Offline.** Lookups are 100 % local, so protection keeps working with the
+   last downloaded database; the status screen says so explicitly.
+
+**Enabling (manual, required by iOS):** Settings ▸ Apps ▸ Safari ▸
+Extensions ▸ AntiPhishing → *Allow Extension* + allow **All Websites**. The
+app can only guide you there; it detects activation through a heartbeat the
+extension writes on every native call. Note the extension protects **Safari
+only** — if Chrome or another browser is your default, links open there
+unchecked.
 
 ---
 
