@@ -35,6 +35,7 @@ nonisolated enum SharedStore {
     // Keys in the shared UserDefaults suite.
     private static let heartbeatKey = "safari_extension_last_seen_at"
     private static let protectionActiveKey = "is_active" // written by AppSettings
+    private static let checkToastKey = "show_check_toast"
 
     // MARK: Container layout
 
@@ -117,6 +118,16 @@ nonisolated enum SharedStore {
     /// The extension honors it so "Protection off" really turns checks off.
     static var isProtectionActive: Bool {
         sharedDefaults?.bool(forKey: protectionActiveKey) ?? false
+    }
+
+    /// "Show check confirmation in Safari" toggle (set in the app's Safari
+    /// Protection screen). When on, the extension shows a small toast the
+    /// first time each domain is checked against the local database — a
+    /// user-visible way to confirm the protection is actually running.
+    /// Repeat visits served from the extension's safe cache stay silent.
+    static var isCheckToastEnabled: Bool {
+        get { sharedDefaults?.bool(forKey: checkToastKey) ?? false }
+        set { sharedDefaults?.set(newValue, forKey: checkToastKey) }
     }
 
     /// The Safari extension has no API the app can query for "is it enabled",

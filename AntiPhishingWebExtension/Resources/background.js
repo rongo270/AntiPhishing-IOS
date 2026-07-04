@@ -114,7 +114,11 @@ async function nativeGetStatus() {
  * Returns the verdict object content.js acts on:
  *   { verdict: "safe" | "malicious" | "allowlisted" | "off" | "unprotected"
  *              | "unavailable",
- *     host, matchedDomain?, source?, threatType? }
+ *     host, matchedDomain?, source?, threatType?, toast? }
+ *
+ * `toast` is true only for FRESH native checks (never for cache hits) while
+ * the app's "Show check confirmation in Safari" toggle is on — so the toast
+ * appears exactly once per newly checked domain.
  */
 async function evaluateUrl(rawUrl) {
     const host = normalizeHost(rawUrl);
@@ -142,7 +146,7 @@ async function evaluateUrl(rawUrl) {
     switch (native.verdict) {
         case "safe":
             await storeSafeVerdict(host, native.dbVersion ?? 0);
-            return { verdict: "safe", host };
+            return { verdict: "safe", host, toast: native.toast === true };
         case "malicious":
             // Never cached in JS: allowlisting or a DB update must take
             // effect on the very next load.
@@ -154,7 +158,7 @@ async function evaluateUrl(rawUrl) {
                 threatType: native.threatType || null
             };
         case "allowlisted":
-            return { verdict: "allowlisted", host };
+            return { verdict: "allowlisted", host, toast: native.toast === true };
         case "off":
             return { verdict: "off" };
         default:

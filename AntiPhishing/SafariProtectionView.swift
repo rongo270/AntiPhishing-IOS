@@ -51,6 +51,9 @@ struct SafariProtectionView: View {
     @EnvironmentObject var settings: AppSettings
 
     @State private var showExtensionGuide = false
+    /// Mirrors SharedStore.isCheckToastEnabled (shared defaults have no
+    /// SwiftUI binding of their own).
+    @State private var showCheckToast = SharedStore.isCheckToastEnabled
     @Environment(\.scenePhase) private var scenePhase
 
     private var lang: AppLanguage { settings.language }
@@ -66,13 +69,24 @@ struct SafariProtectionView: View {
             }
             .padding(20)
         }
+        .refreshable {
+            // Pull-to-refresh: re-read the extension heartbeat (did the user
+            // just enable it in Settings?) and the server freshness state.
+            await center.refreshStatus()
+        }
         .navigationTitle(L10n.string("safari_protection_title", lang))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showExtensionGuide) {
             SafariExtensionGuideView()
                 .environmentObject(settings)
         }
-        .onAppear { center.refreshLocalState() }
+        .onAppear {
+            center.refreshLocalState()
+            showCheckToast = SharedStore.isCheckToastEnabled
+        }
+        .onChange(of: showCheckToast) { _, on in
+            SharedStore.isCheckToastEnabled = on
+        }
         .onChange(of: scenePhase) { _, phase in
             // Returning from Settings/Safari — the heartbeat may be fresh now.
             if phase == .active { center.refreshLocalState() }
@@ -150,6 +164,21 @@ struct SafariProtectionView: View {
             .background(AppColors.primary.opacity(0.12))
             .foregroundStyle(AppColors.primary)
             .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            Divider()
+
+            // Visible proof the protection runs: a small toast in Safari on
+            // the first check of every domain (see SharedStore/content.js).
+            Toggle(isOn: $showCheckToast) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L10n.string("sp_toast_toggle", lang))
+                        .font(.subheadline).bold()
+                    Text(L10n.string("sp_toast_toggle_detail", lang))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .tint(AppColors.primary)
         }
         .padding(16)
         .background(Color(.secondarySystemBackground).opacity(0.5))

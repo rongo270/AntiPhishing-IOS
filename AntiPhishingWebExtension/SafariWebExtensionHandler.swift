@@ -92,6 +92,9 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
             // The JS layer tags its verdict cache with this and drops entries
             // when the app activates a newer database.
             "dbVersion": metadata?.version ?? 0,
+            // "Show check confirmation" toggle from the app: content.js shows
+            // a small toast for fresh (non-cached) checks when this is on.
+            "toast": SharedStore.isCheckToastEnabled,
         ]
 
         guard SharedStore.isProtectionActive else {

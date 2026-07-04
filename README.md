@@ -170,10 +170,15 @@ How it works, end to end:
    (`protection.sqlite`) in the App Group container — exact B-tree lookups, no
    RAM bloat, no Bloom-filter false positives. Per-domain feed source and
    threat category are kept for the warning page.
-3. **Updates.** "Update Protection Database" re-checks the feeds with
-   conditional GETs (ETag/Last-Modified), rebuilds into a *staging* file,
-   validates (min domain count, SQLite integrity check, row count, SHA-256),
-   then swaps atomically. A failed update never touches the active database.
+3. **Updates — button-press only.** Downloads run **solely** when the user
+   taps *Download/Update Protection Database* on the Safari Protection
+   screen; nothing heavy ever runs implicitly. App launch and
+   pull-to-refresh only perform a lightweight `GET /api/stats` (a few
+   hundred bytes) to flag *update available*. An update re-checks the feeds
+   with conditional GETs (ETag/Last-Modified), rebuilds into a *staging*
+   file, validates (min domain count, SQLite integrity check, row count,
+   SHA-256), then swaps atomically. A failed update never touches the
+   active database.
 4. **Extension lookups.** The extension's JavaScript can't read App Group
    files, so `background.js` sends the URL to the native
    `SafariWebExtensionHandler` (`sendNativeMessage`), which normalizes the
@@ -194,6 +199,21 @@ app can only guide you there; it detects activation through a heartbeat the
 extension writes on every native call. Note the extension protects **Safari
 only** — if Chrome or another browser is your default, links open there
 unchecked.
+
+**Verifying it works:**
+
+- Turn on **"Show check confirmation in Safari"** (Safari Protection ▸
+  extension card). Safari then shows a small green toast — *"🛡️ example.com
+  checked — safe"* — the first time each domain is checked (repeat visits
+  come from the extension's cache and stay silent, so the toast really means
+  "a fresh database lookup just ran").
+- Visit a known-bad domain from the database — the full warning page must
+  appear.
+- **Pull down to refresh** on the home screen or the Safari Protection
+  screen: it re-reads the extension heartbeat (e.g. right after enabling the
+  extension in Settings), the allowlist, and server freshness — no relaunch
+  needed. The *"Safari extension is active / last activity"* row is the
+  heartbeat evidence.
 
 ---
 

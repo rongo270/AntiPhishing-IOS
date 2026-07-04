@@ -101,7 +101,6 @@ final class ProtectionCenter: ObservableObject {
     var summary: Summary {
         if !storageAvailable { return .storageError }
         if case .updating = updateActivity { return .updating }
-        if updateActivity == .checking, !databaseExists { return .updating }
         // The extension honors the app's master switch (verdict "off"), so
         // the status must say so instead of claiming active protection.
         if !AppSettings.shared.isProtectionActive { return .masterOff }
@@ -137,30 +136,34 @@ final class ProtectionCenter: ObservableObject {
         }
     }
 
-    /// First-launch / app-open behavior:
-    ///   • no local database → download it now (full update),
-    ///   • database exists   → lightweight /api/stats check only; big
-    ///     downloads never run implicitly when data is already present.
+    /// App-open behavior: refresh local state and run the lightweight
+    /// /api/stats freshness check (a few hundred bytes) so the status card
+    /// can say "update available". Database downloads are NEVER started
+    /// implicitly — they only run when the user presses the
+    /// download/update button (startUpdate).
     func runLaunchCheckIfNeeded() async {
         guard !didRunLaunchCheck else { return }
         didRunLaunchCheck = true
-        refreshLocalState()
+        await refreshStatus()
+    }
 
-        guard storageAvailable else { return }
-        if !databaseExists {
-            await startUpdate(force: false)
-        } else {
-            updateActivity = .checking
-            let stats = await ApiClient.fetchStats()
-            serverStats = stats
-            serverReachable = stats != nil
-            if stats != nil, var m = metadata {
-                m.lastCheckedAt = Date()
-                try? SharedStore.saveMetadata(m)
-                metadata = m
-            }
-            updateActivity = .idle
+    /// Pull-to-refresh / launch check: re-reads shared state from disk
+    /// (extension heartbeat, allowlist, metadata) and refreshes the server
+    /// freshness snapshot. Cheap and side-effect free — never downloads.
+    func refreshStatus() async {
+        refreshLocalState()
+        guard storageAvailable, !updateActivity.isBusy else { return }
+
+        updateActivity = .checking
+        let stats = await ApiClient.fetchStats()
+        serverStats = stats
+        serverReachable = stats != nil
+        if stats != nil, var m = metadata {
+            m.lastCheckedAt = Date()
+            try? SharedStore.saveMetadata(m)
+            metadata = m
         }
+        updateActivity = .idle
     }
 
     /// The "Update Protection Database" action (also used for the automatic

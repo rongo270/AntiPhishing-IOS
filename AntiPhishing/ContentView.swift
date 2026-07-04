@@ -165,6 +165,11 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 24)
             }
+            .refreshable {
+                // Pull-to-refresh: pick up a fresh extension heartbeat,
+                // allowlist edits and server freshness without relaunching.
+                await protectionCenter.refreshStatus()
+            }
             .navigationTitle(L10n.string("app_name", lang))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -218,8 +223,9 @@ struct ContentView: View {
             }
         }
         .task {
-            // First-launch bootstrap: downloads the protection database when
-            // none exists; otherwise a lightweight /api/stats freshness check.
+            // Lightweight freshness check only (local state + /api/stats).
+            // Database downloads run solely from the user-pressed button on
+            // the Safari Protection screen.
             await protectionCenter.runLaunchCheckIfNeeded()
         }
         .overlay(alignment: .bottom) {
