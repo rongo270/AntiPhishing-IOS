@@ -7,13 +7,12 @@
  *   • malicious → stops the load and replaces the page with the AntiPhishing
  *     warning. "Go Back" is the primary action; "Continue Anyway" stores a
  *     temporary approval in the shared allowlist and reloads.
- *   • safe / allowlisted with `toast: true` → shows a small self-dismissing
- *     toast ("checked — safe"). The flag is on only when the user enabled
- *     "Show check confirmation in Safari" in the app AND the verdict came
- *     from a fresh native check — i.e. once per newly checked domain,
- *     never for repeat visits served from the extension's cache.
- *   • anything else (protection off / no database) → does nothing at all —
- *     normal browsing stays untouched.
+ *   • any other verdict with `toast: true` (the app's "Show check
+ *     confirmation in Safari" toggle) → shows a small self-dismissing status
+ *     toast on every page load: green "checked — safe", or an explicit
+ *     problem state — no database downloaded, protection switched off, app
+ *     unreachable — so the user can SEE why protection isn't active.
+ *   • toggle off → does nothing at all; normal browsing stays untouched.
  *
  * Running at document_start on the committed document URL means redirect
  * chains are covered too: whatever URL the navigation actually lands on is
@@ -34,8 +33,7 @@
     if (!result) return;
 
     if (result.verdict !== "malicious") {
-        if (result.toast === true &&
-            (result.verdict === "safe" || result.verdict === "allowlisted")) {
+        if (result.toast === true) {
             showCheckToast(result.host, result.verdict);
         }
         return;
@@ -49,19 +47,43 @@
 
     function showCheckToast(host, verdict) {
         try {
+            const h = host || location.hostname;
+            let text, bg;
+            switch (verdict) {
+                case "safe":
+                    text = h + " checked — safe";
+                    bg = "rgba(27,94,32,.92)";       // green
+                    break;
+                case "allowlisted":
+                    text = h + " — approved by you";
+                    bg = "rgba(230,126,0,.95)";      // orange: user overrode a block
+                    break;
+                case "unprotected":
+                    text = "No protection database — download it in the AntiPhishing app";
+                    bg = "rgba(230,126,0,.95)";      // orange
+                    break;
+                case "off":
+                    text = "AntiPhishing protection is turned off";
+                    bg = "rgba(97,97,97,.95)";       // gray
+                    break;
+                case "unavailable":
+                    text = "AntiPhishing can’t reach the app";
+                    bg = "rgba(198,40,40,.95)";      // red
+                    break;
+                default:
+                    return;
+            }
+
             const render = () => {
                 try {
                     if (!document.body) return;
                     const toast = document.createElement("div");
-                    const label = verdict === "allowlisted"
-                        ? " approved by you"
-                        : " checked — safe";
-                    toast.textContent = "\u{1F6E1}️ " + (host || location.hostname) + label;
+                    toast.textContent = "\u{1F6E1}️ " + text;
                     toast.setAttribute("role", "status");
                     toast.style.cssText =
                         "position:fixed;top:12px;left:50%;transform:translateX(-50%) translateY(-8px);" +
                         "max-width:88vw;box-sizing:border-box;padding:8px 14px;border-radius:16px;" +
-                        "background:rgba(27,94,32,.92);color:#fff;font:600 12px/1.4 -apple-system,system-ui,sans-serif;" +
+                        "background:" + bg + ";color:#fff;font:600 12px/1.4 -apple-system,system-ui,sans-serif;" +
                         "white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" +
                         "box-shadow:0 4px 14px rgba(0,0,0,.25);z-index:2147483647;opacity:0;" +
                         "transition:opacity .25s ease,transform .25s ease;pointer-events:none;";

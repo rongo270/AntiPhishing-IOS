@@ -54,6 +54,9 @@ struct SafariProtectionView: View {
     /// Mirrors SharedStore.isCheckToastEnabled (shared defaults have no
     /// SwiftUI binding of their own).
     @State private var showCheckToast = SharedStore.isCheckToastEnabled
+    /// Mirrors SharedStore.recentVisits — written by the extension process,
+    /// so this view re-reads it explicitly rather than observing it.
+    @State private var recentVisits: [SharedStore.RecentVisit] = []
     @Environment(\.scenePhase) private var scenePhase
 
     private var lang: AppLanguage { settings.language }
@@ -63,6 +66,7 @@ struct SafariProtectionView: View {
             VStack(spacing: 16) {
                 statusCard
                 extensionCard
+                recentVisitsCard
                 databaseCard
                 allowlistCard
                 safariOnlyNote
@@ -73,6 +77,7 @@ struct SafariProtectionView: View {
             // Pull-to-refresh: re-read the extension heartbeat (did the user
             // just enable it in Settings?) and the server freshness state.
             await center.refreshStatus()
+            reloadRecentVisits()
         }
         .navigationTitle(L10n.string("safari_protection_title", lang))
         .navigationBarTitleDisplayMode(.inline)
@@ -83,13 +88,17 @@ struct SafariProtectionView: View {
         .onAppear {
             center.refreshLocalState()
             showCheckToast = SharedStore.isCheckToastEnabled
+            reloadRecentVisits()
         }
         .onChange(of: showCheckToast) { _, on in
             SharedStore.isCheckToastEnabled = on
         }
         .onChange(of: scenePhase) { _, phase in
             // Returning from Settings/Safari — the heartbeat may be fresh now.
-            if phase == .active { center.refreshLocalState() }
+            if phase == .active {
+                center.refreshLocalState()
+                reloadRecentVisits()
+            }
         }
         .environment(\.layoutDirection, lang == .hebrew ? .rightToLeft : .leftToRight)
     }
@@ -105,12 +114,8 @@ struct SafariProtectionView: View {
             Text(L10n.string(visual.titleKey, lang))
                 .font(.headline)
                 .multilineTextAlignment(.center)
-            if case .updating(let phaseKey, let detail) = center.updateActivity {
-                ProgressView().padding(.top, 2)
-                Text(L10n.string(phaseKey, lang) + (detail.map { "\n\($0)" } ?? ""))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+            if case .updating(let phaseKey, let detail, let fraction) = center.updateActivity {
+                updateProgress(phaseKey: phaseKey, detail: detail, fraction: fraction)
             } else {
                 Text(L10n.string(visual.detailKey, lang))
                     .font(.footnote)
@@ -129,6 +134,56 @@ struct SafariProtectionView: View {
         .padding(20)
         .background(visual.color.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    /// Live update progress: percent bar, phase + detail, and an
+    /// elapsed / estimated-remaining line that ticks every second.
+    private func updateProgress(phaseKey: String, detail: String?, fraction: Double?) -> some View {
+        VStack(spacing: 6) {
+            if let fraction {
+                ProgressView(value: fraction)
+                    .progressViewStyle(.linear)
+                    .tint(AppColors.primary)
+                HStack {
+                    Text("\(Int(fraction * 100))%")
+                        .font(.footnote).bold()
+                        .foregroundStyle(AppColors.primary)
+                    Spacer()
+                    if let started = center.updateStartedAt {
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            Text(timingLine(started: started, fraction: fraction, now: context.date))
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                    }
+                }
+            } else {
+                ProgressView().padding(.top, 2)
+            }
+            Text(L10n.string(phaseKey, lang) + (detail.map { " · \($0)" } ?? ""))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.top, 4)
+    }
+
+    /// "0:42 · ~1:10 left" — the remaining estimate appears once there is
+    /// enough progress for the extrapolation to mean anything.
+    private func timingLine(started: Date, fraction: Double, now: Date) -> String {
+        let elapsed = max(now.timeIntervalSince(started), 0)
+        var line = Self.mmss(elapsed)
+        if fraction > 0.05, fraction < 1 {
+            let remaining = elapsed / fraction * (1 - fraction)
+            line += " · ~" + Self.mmss(remaining) + " " + L10n.string("sp_progress_left", lang)
+        }
+        return line
+    }
+
+    static func mmss(_ interval: TimeInterval) -> String {
+        let seconds = Int(interval.rounded())
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 
     // MARK: Extension card
@@ -185,6 +240,64 @@ struct SafariProtectionView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
+    // MARK: Recent visits card
+
+    private func reloadRecentVisits() {
+        recentVisits = Array(SharedStore.recentVisits.prefix(5))
+    }
+
+    /// Icon/color/label for a recorded verdict — mirrors the verdict strings
+    /// the native handler writes in SharedStore.recordRecentVisit.
+    private func visitVisual(_ verdict: String) -> (icon: String, color: Color, labelKey: String) {
+        switch verdict {
+        case "safe": return ("checkmark.shield.fill", .green, "sp_visit_verdict_safe")
+        case "malicious": return ("exclamationmark.shield.fill", .red, "sp_visit_verdict_malicious")
+        case "allowlisted": return ("checkmark.circle.fill", AppColors.primary, "sp_visit_verdict_allowlisted")
+        case "off": return ("shield.slash", .secondary, "sp_visit_verdict_off")
+        default: return ("shield.slash.fill", .orange, "sp_visit_verdict_unprotected")
+        }
+    }
+
+    private var recentVisitsCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(L10n.string("sp_recent_visits_title", lang))
+                .font(.subheadline).bold()
+
+            if recentVisits.isEmpty {
+                Text(L10n.string("sp_recent_visits_empty", lang))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(recentVisits, id: \.host) { visit in
+                    let visual = visitVisual(visit.verdict)
+                    HStack(spacing: 10) {
+                        Image(systemName: visual.icon)
+                            .foregroundStyle(visual.color)
+                            .frame(width: 20)
+                        Text(visit.host)
+                            .font(.footnote)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Text(L10n.string(visual.labelKey, lang))
+                            .font(.caption2).bold()
+                            .foregroundStyle(visual.color)
+                        Text(Date(timeIntervalSince1970: visit.timestamp).formatted(.relative(presentation: .named)))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    if visit.host != recentVisits.last?.host {
+                        Divider()
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(Color(.secondarySystemBackground).opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
     // MARK: Database card
 
     private var databaseCard: some View {
@@ -204,6 +317,22 @@ struct SafariProtectionView: View {
                 if let checked = metadata.lastCheckedAt {
                     infoRow("clock", L10n.string("sp_db_checked", lang),
                             checked.formatted(.relative(presentation: .named)))
+                }
+                if center.isCheckingFreshness {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.mini)
+                        Text(L10n.string("sp_checking_freshness", lang))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 2)
+                }
+                if let duration = metadata.lastUpdateDuration {
+                    infoRow("stopwatch", L10n.string("sp_db_duration", lang),
+                            Self.mmss(duration))
+                }
+                if let issues = metadata.lastFeedIssues, !issues.isEmpty {
+                    feedIssuesBox(issues)
                 }
             } else {
                 Text(L10n.string("sp_db_none", lang))
@@ -236,6 +365,28 @@ struct SafariProtectionView: View {
         .padding(16)
         .background(Color(.secondarySystemBackground).opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// Per-feed problems from the last update (non-fatal — the database
+    /// still built). Raw technical reasons on purpose: this is the
+    /// diagnostics the user asked "are there any errors?" about.
+    private func feedIssuesBox(_ issues: [String: String]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(L10n.string("sp_feed_issues", lang), systemImage: "exclamationmark.triangle.fill")
+                .font(.caption).bold()
+                .foregroundStyle(.orange)
+            ForEach(issues.sorted(by: { $0.key < $1.key }), id: \.key) { name, reason in
+                Text("\(name.replacingOccurrences(of: "_", with: " ")): \(reason)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(Color.orange.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.top, 4)
     }
 
     private func infoRow(_ icon: String, _ label: String, _ value: String) -> some View {

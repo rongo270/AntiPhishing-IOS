@@ -203,10 +203,15 @@ unchecked.
 **Verifying it works:**
 
 - Turn on **"Show check confirmation in Safari"** (Safari Protection ▸
-  extension card). Safari then shows a small green toast — *"🛡️ example.com
-  checked — safe"* — the first time each domain is checked (repeat visits
-  come from the extension's cache and stay silent, so the toast really means
-  "a fresh database lookup just ran").
+  extension card). While it is on the extension bypasses its safe cache, so
+  **every page load** runs a live database check and shows a status toast:
+  green *"🛡️ example.com checked — safe"*, or an explicit problem state —
+  orange *"No protection database — download it in the AntiPhishing app"*,
+  gray *"protection is turned off"*, red *"can't reach the app"*. If no
+  toast appears at all, the extension itself isn't running: check Settings ▸
+  Apps ▸ Safari ▸ Extensions (allow + All Websites) and that the app was
+  reinstalled after the extension was added. Turn the toggle off for quiet
+  browsing (the cache turns back on).
 - Visit a known-bad domain from the database — the full warning page must
   appear.
 - **Pull down to refresh** on the home screen or the Safari Protection

@@ -36,6 +36,10 @@ nonisolated enum SharedStore {
     private static let heartbeatKey = "safari_extension_last_seen_at"
     private static let protectionActiveKey = "is_active" // written by AppSettings
     private static let checkToastKey = "show_check_toast"
+    private static let recentVisitsKey = "safari_recent_visits"
+
+    /// How many recent Safari checks to retain (the app shows the newest 5).
+    static let maxRecentVisits = 20
 
     // MARK: Container layout
 
@@ -121,10 +125,10 @@ nonisolated enum SharedStore {
     }
 
     /// "Show check confirmation in Safari" toggle (set in the app's Safari
-    /// Protection screen). When on, the extension shows a small toast the
-    /// first time each domain is checked against the local database — a
-    /// user-visible way to confirm the protection is actually running.
-    /// Repeat visits served from the extension's safe cache stay silent.
+    /// Protection screen). While on, the extension bypasses its safe cache
+    /// and shows a status toast on EVERY page load — "checked — safe" or an
+    /// explicit problem state (no database / protection off / app
+    /// unreachable) — a user-visible end-to-end test of the protection.
     static var isCheckToastEnabled: Bool {
         get { sharedDefaults?.bool(forKey: checkToastKey) ?? false }
         set { sharedDefaults?.set(newValue, forKey: checkToastKey) }
@@ -140,6 +144,41 @@ nonisolated enum SharedStore {
     static var lastExtensionHeartbeat: Date? {
         guard let t = sharedDefaults?.object(forKey: heartbeatKey) as? Double else { return nil }
         return Date(timeIntervalSince1970: t)
+    }
+
+    // MARK: Recent Safari visits
+
+    /// One page checked by the Safari extension — recorded by the native
+    /// handler on every `checkDomain` call so the app can show "recently
+    /// visited" without Safari ever sending page URLs to a server.
+    nonisolated struct RecentVisit: Codable, Equatable {
+        var host: String
+        var verdict: String   // "safe" | "malicious" | "allowlisted" | "off" | "unprotected"
+        var timestamp: Double // seconds since 1970
+    }
+
+    /// Records a checked host, newest first, deduped by host. Called from the
+    /// Safari Web Extension process (SafariWebExtensionHandler) — never from
+    /// the app itself.
+    static func recordRecentVisit(host: String, verdict: String) {
+        guard let defaults = sharedDefaults else { return }
+        var visits = recentVisits
+        visits.removeAll { $0.host == host }
+        visits.insert(RecentVisit(host: host, verdict: verdict, timestamp: Date().timeIntervalSince1970), at: 0)
+        if visits.count > maxRecentVisits {
+            visits = Array(visits.prefix(maxRecentVisits))
+        }
+        if let data = try? JSONEncoder().encode(visits) {
+            defaults.set(data, forKey: recentVisitsKey)
+        }
+    }
+
+    /// All recorded visits, newest first. The app shows only the newest 5.
+    static var recentVisits: [RecentVisit] {
+        guard let defaults = sharedDefaults,
+              let data = defaults.data(forKey: recentVisitsKey),
+              let decoded = try? JSONDecoder().decode([RecentVisit].self, from: data) else { return [] }
+        return decoded
     }
 }
 

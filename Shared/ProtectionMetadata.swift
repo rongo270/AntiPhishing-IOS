@@ -48,11 +48,24 @@ nonisolated struct ProtectionMetadata: Codable, Equatable {
     /// friendly message; this raw string is for logs/diagnostics only.
     var lastUpdateError: String?
 
+    /// Wall-clock duration of the update that produced this database —
+    /// shown in the UI so "how long does it take" has a real answer.
+    var lastUpdateDuration: TimeInterval?
+
+    /// Feeds that contributed nothing to the last update (name → reason,
+    /// e.g. "HTTP 502" / timeout). Non-fatal — the database still built from
+    /// the remaining feeds — but surfaced in the UI for transparency.
+    var lastFeedIssues: [String: String]?
+
     nonisolated struct FeedState: Codable, Equatable {
         var etag: String?
         var lastModified: String?
         var recordCount: Int
         var fetchedAt: Date
+        /// Decompressed byte size of the last fresh download. Used as the
+        /// expected size for the next download's progress bar (more accurate
+        /// than Content-Length, which reports the gzip-compressed size).
+        var byteSize: Int64?
     }
 
     // MARK: Serialization

@@ -93,9 +93,14 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
             // when the app activates a newer database.
             "dbVersion": metadata?.version ?? 0,
             // "Show check confirmation" toggle from the app: content.js shows
-            // a small toast for fresh (non-cached) checks when this is on.
+            // a status toast on every page load while this is on.
             "toast": SharedStore.isCheckToastEnabled,
         ]
+        defer {
+            if let verdict = response["verdict"] as? String {
+                SharedStore.recordRecentVisit(host: host, verdict: verdict)
+            }
+        }
 
         guard SharedStore.isProtectionActive else {
             response["verdict"] = "off"
@@ -150,6 +155,9 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
             "protectionActive": SharedStore.isProtectionActive,
             "databaseExists": SharedStore.databaseExists,
             "dbVersion": metadata?.version ?? 0,
+            // background.js re-syncs its stored copy of the toast toggle from
+            // this on every wake-up of its (ephemeral) background page.
+            "toast": SharedStore.isCheckToastEnabled,
         ]
         if let metadata {
             response["domainCount"] = metadata.domainCount

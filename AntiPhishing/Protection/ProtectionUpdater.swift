@@ -33,8 +33,13 @@ nonisolated enum ProtectionUpdateEngine {
 
     enum Phase: Sendable {
         case contactingServer
-        case downloading(feed: String, index: Int, total: Int)
-        case building
+        /// Overall progress of the (concurrent) feed downloads.
+        /// `fraction` covers the whole download stage (0…1, byte-weighted);
+        /// `detail` is a ready-made human line ("3/8 · 12.4 MB").
+        case downloading(completed: Int, total: Int, fraction: Double, detail: String?)
+        /// Staging-database build progress. `estimatedTotal` (server domain
+        /// count or the previous build's count) may be nil → indeterminate.
+        case building(inserted: Int, estimatedTotal: Int?)
         case validating
         case activating
     }
@@ -68,13 +73,15 @@ nonisolated enum ProtectionUpdateEngine {
         }
     }
 
-    private struct FeedFetchResult {
+    private struct FeedFetchResult: Sendable {
         var feed: ThreatFeed
         /// Local file to parse (fresh download or reused cache), nil = feed unusable.
         var dataURL: URL?
         var freshDownload: Bool
         var etag: String?
         var lastModified: String?
+        /// Decompressed size of a fresh download (progress estimate next time).
+        var byteCount: Int64?
         var failureReason: String?
     }
 
@@ -91,28 +98,66 @@ nonisolated enum ProtectionUpdateEngine {
             throw UpdateError.storageUnavailable
         }
 
+        let startedAt = Date()
         let previousMetadata = SharedStore.loadMetadata()
 
         // ── 1. Server counters (best effort — update works offline-tolerant
-        //       as long as the feeds themselves are reachable) ───────────────
-        progress(.contactingServer)
-        let stats = await ApiClient.fetchStats()
+        //       as long as the feeds themselves are reachable). Fetched
+        //       CONCURRENTLY with the downloads: the counters only feed the
+        //       freshness display and a progress estimate, so a sleeping /
+        //       502 server must never stall the update at the starting line
+        //       (that stall was the "stuck on Update" symptom). ──────────────
+        async let statsAsync = ApiClient.fetchStats(timeout: 8)
 
-        // ── 2. Download feeds (conditional GETs) ─────────────────────────────
+        // ── 2. Download feeds concurrently (conditional GETs). Parallelism
+        //       bounds the wall time by the slowest feed instead of the sum
+        //       of all of them; the board merges per-feed byte counts into
+        //       one overall fraction for the progress bar. ───────────────────
         let total = ThreatFeed.all.count
+        let board = DownloadProgressBoard(total: total)
+        progress(.downloading(completed: 0, total: total, fraction: 0, detail: nil))
+
         var fetches: [FeedFetchResult] = []
-        for (index, feed) in ThreatFeed.all.enumerated() {
-            progress(.downloading(feed: feed.name, index: index + 1, total: total))
-            let previous = previousMetadata?.feedStates[feed.name]
-            let result = await fetch(feed: feed,
-                                     previousState: force ? nil : previous,
-                                     stagingDir: stagingDir,
-                                     cacheDir: cacheDir)
-            fetches.append(result)
+        await withTaskGroup(of: FeedFetchResult.self) { group in
+            for feed in ThreatFeed.all {
+                let previous = previousMetadata?.feedStates[feed.name]
+                group.addTask {
+                    await fetch(feed: feed,
+                                previousState: force ? nil : previous,
+                                expectedBytes: previous?.byteSize,
+                                stagingDir: stagingDir,
+                                cacheDir: cacheDir) { received, expected in
+                        if let snap = board.update(feed: feed.name, received: received, expected: expected) {
+                            progress(.downloading(completed: snap.completed, total: total,
+                                                  fraction: snap.fraction, detail: snap.detail))
+                        }
+                    }
+                }
+            }
+            for await result in group {
+                fetches.append(result)
+                let snap = board.finish(feed: result.feed.name)
+                progress(.downloading(completed: snap.completed, total: total,
+                                      fraction: snap.fraction, detail: snap.detail))
+            }
         }
 
         let anyFresh = fetches.contains { $0.freshDownload }
         let usable = fetches.filter { $0.dataURL != nil }
+
+        // Collect the concurrent stats now. The downloads gave it a head
+        // start, so on a real connection it has already finished (or timed
+        // out) — no added wait — while the update never stalled waiting for it.
+        let stats = await statsAsync
+
+        // Non-fatal per-feed problems, surfaced in the UI for transparency.
+        // A feed that fell back to its cached copy still counts: its data is
+        // stale even though the update as a whole succeeded.
+        var feedIssues: [String: String] = [:]
+        for f in fetches {
+            guard let reason = f.failureReason else { continue }
+            feedIssues[f.feed.name] = f.dataURL != nil ? "\(reason) — using cached copy" : reason
+        }
 
         if usable.isEmpty {
             var reasons: [String: String] = [:]
@@ -127,12 +172,17 @@ nonisolated enum ProtectionUpdateEngine {
             metadata.serverMaliciousDomains = stats?.maliciousDomains ?? metadata.serverMaliciousDomains
             metadata.serverMaliciousURLs = stats?.maliciousUrls ?? metadata.serverMaliciousURLs
             metadata.lastUpdateError = nil
+            metadata.lastFeedIssues = feedIssues.isEmpty ? nil : feedIssues
             try? SharedStore.saveMetadata(metadata)
             return .alreadyUpToDate(metadata)
         }
 
         // ── 3. Build the staging database ────────────────────────────────────
-        progress(.building)
+        // Progress denominator: the previous build's count is the most
+        // reliable, always-available estimate of the final size; the server
+        // counter is the fallback for a first-ever build.
+        let estimatedTotal = previousMetadata?.domainCount ?? stats?.maliciousDomains
+        progress(.building(inserted: 0, estimatedTotal: estimatedTotal))
         let stagingDB = stagingDir.appendingPathComponent("protection-staging.sqlite")
         var feedStates: [String: ProtectionMetadata.FeedState] = [:]
         let insertedCount: Int
@@ -140,7 +190,9 @@ nonisolated enum ProtectionUpdateEngine {
             let writer = try ProtectionDatabaseWriter(url: stagingDB)
             for fetch in usable {
                 guard let fileURL = fetch.dataURL else { continue }
-                let count = try await parse(feed: fetch.feed, fileURL: fileURL, into: writer)
+                let count = try await parse(feed: fetch.feed, fileURL: fileURL, into: writer) { inserted in
+                    progress(.building(inserted: inserted, estimatedTotal: estimatedTotal))
+                }
                 // A 200-OK feed that parses to zero domains is corrupt output;
                 // keep the update alive but don't record it as a good state.
                 if count > 0 {
@@ -149,7 +201,8 @@ nonisolated enum ProtectionUpdateEngine {
                         etag: fetch.freshDownload ? fetch.etag : previous?.etag,
                         lastModified: fetch.freshDownload ? fetch.lastModified : previous?.lastModified,
                         recordCount: count,
-                        fetchedAt: fetch.freshDownload ? Date() : (previous?.fetchedAt ?? Date())
+                        fetchedAt: fetch.freshDownload ? Date() : (previous?.fetchedAt ?? Date()),
+                        byteSize: fetch.freshDownload ? fetch.byteCount : previous?.byteSize
                     )
                 }
             }
@@ -221,7 +274,9 @@ nonisolated enum ProtectionUpdateEngine {
             serverMaliciousDomains: stats?.maliciousDomains ?? previousMetadata?.serverMaliciousDomains,
             serverMaliciousURLs: stats?.maliciousUrls ?? previousMetadata?.serverMaliciousURLs,
             lastCheckedAt: Date(),
-            lastUpdateError: nil
+            lastUpdateError: nil,
+            lastUpdateDuration: Date().timeIntervalSince(startedAt),
+            lastFeedIssues: feedIssues.isEmpty ? nil : feedIssues
         )
         try? SharedStore.saveMetadata(metadata)
         return .updated(metadata)
@@ -238,12 +293,18 @@ nonisolated enum ProtectionUpdateEngine {
 
     // MARK: - Networking
 
+    /// Downloads one feed, streaming to disk and reporting received bytes via
+    /// `onBytes(received, expected)`. `expected` prefers the previous fresh
+    /// download's decompressed size (`expectedBytes`) over Content-Length,
+    /// which reports the gzip-compressed size and would skew the bar.
     private static func fetch(feed: ThreatFeed,
                               previousState: ProtectionMetadata.FeedState?,
+                              expectedBytes: Int64?,
                               stagingDir: URL,
-                              cacheDir: URL) async -> FeedFetchResult {
+                              cacheDir: URL,
+                              onBytes: @escaping @Sendable (Int64, Int64?) -> Void) async -> FeedFetchResult {
         var request = URLRequest(url: feed.url)
-        request.timeoutInterval = 90
+        request.timeoutInterval = 90 // idle timeout between packets, not total
         request.setValue("AntiPhishing-iOS/1.0", forHTTPHeaderField: "User-Agent")
 
         let cachedFile = cacheDir.appendingPathComponent(feed.name + ".txt")
@@ -256,47 +317,77 @@ nonisolated enum ProtectionUpdateEngine {
         }
 
         do {
-            let (tempURL, response) = try await URLSession.shared.download(for: request)
+            let (bytes, response) = try await URLSession.shared.bytes(for: request)
             guard let http = response as? HTTPURLResponse else {
                 return FeedFetchResult(feed: feed, dataURL: hasCache ? cachedFile : nil,
                                        freshDownload: false, etag: nil, lastModified: nil,
-                                       failureReason: "no HTTP response")
+                                       byteCount: nil, failureReason: "no HTTP response")
             }
             switch http.statusCode {
             case 200:
+                let headerLength = http.expectedContentLength > 0 ? http.expectedContentLength : nil
+                let expected = expectedBytes ?? headerLength
                 let staged = stagingDir.appendingPathComponent(feed.name + ".download")
                 try? FileManager.default.removeItem(at: staged)
-                try FileManager.default.moveItem(at: tempURL, to: staged)
+                FileManager.default.createFile(atPath: staged.path, contents: nil)
+                let handle = try FileHandle(forWritingTo: staged)
+                var received: Int64 = 0
+                do {
+                    var buffer = Data(capacity: 1 << 18)
+                    for try await byte in bytes {
+                        buffer.append(byte)
+                        if buffer.count >= 1 << 18 { // flush + report every 256 KB
+                            try handle.write(contentsOf: buffer)
+                            received += Int64(buffer.count)
+                            buffer.removeAll(keepingCapacity: true)
+                            onBytes(received, expected)
+                        }
+                    }
+                    if !buffer.isEmpty {
+                        try handle.write(contentsOf: buffer)
+                        received += Int64(buffer.count)
+                    }
+                    try handle.close()
+                    onBytes(received, expected)
+                } catch {
+                    try? handle.close()
+                    try? FileManager.default.removeItem(at: staged)
+                    throw error
+                }
                 return FeedFetchResult(
                     feed: feed, dataURL: staged, freshDownload: true,
                     etag: http.value(forHTTPHeaderField: "ETag"),
                     lastModified: http.value(forHTTPHeaderField: "Last-Modified"),
+                    byteCount: received,
                     failureReason: nil)
             case 304:
                 // Unchanged since last download — reuse the cached copy.
                 return FeedFetchResult(feed: feed, dataURL: hasCache ? cachedFile : nil,
                                        freshDownload: false, etag: nil, lastModified: nil,
+                                       byteCount: nil,
                                        failureReason: hasCache ? nil : "304 without cache")
             default:
                 return FeedFetchResult(feed: feed, dataURL: hasCache ? cachedFile : nil,
                                        freshDownload: false, etag: nil, lastModified: nil,
-                                       failureReason: "HTTP \(http.statusCode)")
+                                       byteCount: nil, failureReason: "HTTP \(http.statusCode)")
             }
         } catch {
             // Network failure: fall back to the cached copy (if any) so a
             // temporarily broken feed doesn't drop its domains from the DB.
             return FeedFetchResult(feed: feed, dataURL: hasCache ? cachedFile : nil,
                                    freshDownload: false, etag: nil, lastModified: nil,
-                                   failureReason: error.localizedDescription)
+                                   byteCount: nil, failureReason: error.localizedDescription)
         }
     }
 
     // MARK: - Parsing
 
-    /// Streams one feed file line-by-line into the staging database.
+    /// Streams one feed file line-by-line into the staging database,
+    /// reporting the writer's total inserted count every 25k rows.
     /// Never loads the whole feed into memory (files can be 10–20MB).
     private static func parse(feed: ThreatFeed, fileURL: URL,
-                              into writer: ProtectionDatabaseWriter) async throws -> Int {
+                              into writer: ProtectionDatabaseWriter,
+                              onProgress: (Int) -> Void) async throws -> Int {
         var count = 0
         var isFirstLine = true
         do {
@@ -307,6 +398,7 @@ nonisolated enum ProtectionUpdateEngine {
                       !ThreatFeed.excludedHosts.contains(domain) else { continue }
                 try writer.insert(domain: domain, source: feed.name, type: feed.threatType)
                 count += 1
+                if writer.insertedCount % 25_000 == 0 { onProgress(writer.insertedCount) }
             }
         } catch let error as ProtectionDatabaseWriter.WriterError {
             throw UpdateError.buildFailed("\(feed.name): \(error)")
@@ -315,6 +407,60 @@ nonisolated enum ProtectionUpdateEngine {
             return count
         }
         return count
+    }
+}
+
+// MARK: - Download progress aggregation
+
+/// Merges concurrent per-feed byte counts into one 0…1 fraction + detail line
+/// for the UI, rate-limited so the MainActor isn't flooded with hops.
+/// Thread-safe via an internal lock (updates arrive from parallel tasks).
+private nonisolated final class DownloadProgressBoard: @unchecked Sendable {
+
+    struct Snapshot {
+        var completed: Int
+        var fraction: Double
+        var detail: String
+    }
+
+    private let lock = NSLock()
+    private let total: Int
+    private var fractions: [String: Double] = [:]
+    private var bytes: [String: Int64] = [:]
+    private var completedFeeds = 0
+    private var lastEmit = Date.distantPast
+
+    init(total: Int) { self.total = max(total, 1) }
+
+    /// Byte-progress update from one feed. Returns nil when rate-limited.
+    func update(feed: String, received: Int64, expected: Int64?) -> Snapshot? {
+        lock.lock(); defer { lock.unlock() }
+        if let expected, expected > 0 {
+            // Cap below 1: only finish() marks a feed complete.
+            fractions[feed] = min(Double(received) / Double(expected), 0.99)
+        }
+        bytes[feed] = received
+        guard Date().timeIntervalSince(lastEmit) > 0.25 else { return nil }
+        lastEmit = Date()
+        return snapshotLocked()
+    }
+
+    /// A feed finished (successfully or not — either way it's done).
+    func finish(feed: String) -> Snapshot {
+        lock.lock(); defer { lock.unlock() }
+        fractions[feed] = 1
+        completedFeeds += 1
+        lastEmit = Date()
+        return snapshotLocked()
+    }
+
+    private func snapshotLocked() -> Snapshot {
+        let fraction = fractions.values.reduce(0, +) / Double(total)
+        let totalBytes = bytes.values.reduce(0, +)
+        let mb = ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
+        return Snapshot(completed: completedFeeds,
+                        fraction: min(fraction, 1),
+                        detail: "\(completedFeeds)/\(total) · \(mb)")
     }
 }
 

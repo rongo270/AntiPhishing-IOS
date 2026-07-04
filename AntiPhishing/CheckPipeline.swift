@@ -9,7 +9,7 @@
 //  Step 1: Check URL against local lists (IS_LOCAL) or the Flask server.
 //  Step 2: For Unknown results, run on-device LexicalAnalyzer.
 //          - isObviouslyMalicious  → block immediately (Malicious)
-//          - otherwise             → Step 3 ML server (not built yet) → Unknown
+//          - otherwise             → Step 3: ApiClient.scoreLexical (ML server)
 //
 
 import Foundation
@@ -58,15 +58,8 @@ enum CheckPipeline {
                 matchType: "lexical"
             )
         } else {
-            // Step 3 (ML model) not built yet.
-            let riskScore = Int(lexical.features["lexical_risk_score"] ?? 0)
-            return .unknown(explanation:
-                "Lexical analysis complete (score: \(riskScore)). " +
-                "Step 3 ML model not built yet — cannot make final decision."
-            )
-
-            // When the ML server is ready, replace the above with:
-            // return await ApiClient.scoreLexical(url, features: lexical.features)
+            // Step 3: forward the URL and lexical feature vector to the ML model.
+            return await ApiClient.scoreLexical(url, features: lexical.features)
         }
     }
 

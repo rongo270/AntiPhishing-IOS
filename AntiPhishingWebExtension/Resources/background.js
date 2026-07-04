@@ -7,7 +7,9 @@
  *      DomainNormalizer — see note below).
  *   2. Safe-verdict cache in browser.storage.local — repeat visits to the
  *      same domain skip the native round-trip entirely, so navigating
- *      within a site costs nothing.
+ *      within a site costs nothing. (Bypassed while the app's "Show check
+ *      confirmation in Safari" toggle is on — verification mode wants a
+ *      live check, and a visible toast, on every page load.)
  *   3. Native message to SafariWebExtensionHandler (Swift), which checks the
  *      shared allowlist and the on-device SQLite malicious-domain database.
  *
@@ -93,6 +95,33 @@ async function rememberDbVersion(version) {
     await browser.storage.local.set({ dbVersion: version });
 }
 
+// ── Check-confirmation ("toast") mode ────────────────────────────────────────
+// Mirrors the app's "Show check confirmation in Safari" toggle. While it is
+// on, the safe cache is bypassed so EVERY page load runs a live native check
+// and shows a status toast — including the failure states (no database /
+// protection off / app unreachable), which is what makes it a real
+// end-to-end test rather than a sometimes-visible decoration.
+
+async function toastModeEnabled() {
+    const obj = await browser.storage.local.get("toastEnabled");
+    return obj.toastEnabled === true;
+}
+
+async function rememberToastMode(on) {
+    await browser.storage.local.set({ toastEnabled: on === true });
+}
+
+// The stored flag can go stale when the user flips the toggle in the app
+// (the app cannot write browser.storage.local). Safari kills and restarts
+// this background page frequently, so re-syncing once per lifetime keeps the
+// lag to roughly one page load.
+(async () => {
+    try {
+        const status = await nativeGetStatus();
+        if (status && status.ok) await rememberToastMode(status.toast === true);
+    } catch (_) { /* app not reachable — keep the last known value */ }
+})();
+
 // ── Native bridge ────────────────────────────────────────────────────────────
 
 async function nativeCheckDomain(url) {
@@ -116,37 +145,45 @@ async function nativeGetStatus() {
  *              | "unavailable",
  *     host, matchedDomain?, source?, threatType?, toast? }
  *
- * `toast` is true only for FRESH native checks (never for cache hits) while
- * the app's "Show check confirmation in Safari" toggle is on — so the toast
- * appears exactly once per newly checked domain.
+ * `toast: true` (only while the app's "Show check confirmation in Safari"
+ * toggle is on) tells content.js to show a status toast for this page —
+ * for every verdict except malicious, whose warning page speaks for itself.
  */
 async function evaluateUrl(rawUrl) {
     const host = normalizeHost(rawUrl);
     if (!host) return { verdict: "unavailable" };
 
+    const toastMode = await toastModeEnabled();
+
     // Fast path: recently confirmed safe against the current database.
-    const knownVersion = await lastKnownDbVersion();
-    const cached = await cachedSafeVerdict(host, knownVersion);
-    if (cached) return cached;
+    // Skipped in toast mode — a confirmation toast must mean "a live check
+    // ran on this very page load", so no cached answers while verifying.
+    if (!toastMode) {
+        const knownVersion = await lastKnownDbVersion();
+        const cached = await cachedSafeVerdict(host, knownVersion);
+        if (cached) return cached;
+    }
 
     let native;
     try {
         native = await nativeCheckDomain(rawUrl);
     } catch (_) {
-        // Native handler unreachable — fail open but silent (never break
-        // browsing), the app shows the real protection status.
-        return { verdict: "unavailable" };
+        // Native handler unreachable — fail open, never break browsing. In
+        // toast mode this still surfaces as an "app unreachable" toast.
+        return { verdict: "unavailable", host, toast: toastMode };
     }
-    if (!native || !native.ok) return { verdict: "unavailable" };
+    if (!native || !native.ok) return { verdict: "unavailable", host, toast: toastMode };
 
     if (typeof native.dbVersion === "number") {
         await rememberDbVersion(native.dbVersion);
     }
+    await rememberToastMode(native.toast === true);
+    const toast = native.toast === true;
 
     switch (native.verdict) {
         case "safe":
             await storeSafeVerdict(host, native.dbVersion ?? 0);
-            return { verdict: "safe", host, toast: native.toast === true };
+            return { verdict: "safe", host, toast };
         case "malicious":
             // Never cached in JS: allowlisting or a DB update must take
             // effect on the very next load.
@@ -158,11 +195,11 @@ async function evaluateUrl(rawUrl) {
                 threatType: native.threatType || null
             };
         case "allowlisted":
-            return { verdict: "allowlisted", host, toast: native.toast === true };
+            return { verdict: "allowlisted", host, toast };
         case "off":
-            return { verdict: "off" };
+            return { verdict: "off", host, toast };
         default:
-            return { verdict: "unprotected" };
+            return { verdict: "unprotected", host, toast };
     }
 }
 

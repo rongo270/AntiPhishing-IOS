@@ -42,12 +42,23 @@ final class ProtectionCenter: ObservableObject {
     @Published private(set) var updateActivity: UpdateActivity = .idle
     /// Friendly outcome line for the last finished update ("1 minute ago…").
     @Published private(set) var lastUpdateOutcomeKey: String?
+    /// When the running update started — drives the elapsed/remaining line.
+    @Published private(set) var updateStartedAt: Date?
+    /// A lightweight `/api/stats` freshness check is running in the background.
+    /// Kept SEPARATE from `updateActivity` on purpose: a background check must
+    /// never make the "Update Protection Database" button look busy or block a
+    /// real update (that conflation made a slow/unreachable server look like a
+    /// stuck download).
+    @Published private(set) var isCheckingFreshness = false
 
     enum UpdateActivity: Equatable {
         case idle
-        case checking
-        case updating(phaseKey: String, detail: String?)
+        /// `progress` is the overall update fraction (0…1) for the bar,
+        /// nil while a stage can't estimate (e.g. build with unknown total).
+        case updating(phaseKey: String, detail: String?, progress: Double?)
 
+        /// True only during a real database update (download/build/activate),
+        /// so only that drives the button spinner — never a freshness check.
         var isBusy: Bool { self != .idle }
     }
 
@@ -75,6 +86,12 @@ final class ProtectionCenter: ObservableObject {
     static let extensionSeenWindow: TimeInterval = 14 * 24 * 60 * 60
 
     private var didRunLaunchCheck = false
+    /// Identifies the current update run. Progress callbacks are delivered via
+    /// detached MainActor tasks that can arrive out of order — including AFTER
+    /// the run finished — which previously left the bar frozen at "98%". Each
+    /// callback carries the token it was issued under and is dropped once the
+    /// token moves on, so no late phase can revive a finished update.
+    private var updateRunToken = 0
 
     private init() {
         refreshLocalState()
@@ -149,13 +166,17 @@ final class ProtectionCenter: ObservableObject {
 
     /// Pull-to-refresh / launch check: re-reads shared state from disk
     /// (extension heartbeat, allowlist, metadata) and refreshes the server
-    /// freshness snapshot. Cheap and side-effect free — never downloads.
+    /// freshness snapshot. Cheap and side-effect free — never downloads, and
+    /// never blocks or spins the update button (see `isCheckingFreshness`).
+    /// A real update in progress takes priority — skip the check then.
     func refreshStatus() async {
         refreshLocalState()
-        guard storageAvailable, !updateActivity.isBusy else { return }
+        guard storageAvailable, !updateActivity.isBusy, !isCheckingFreshness else { return }
 
-        updateActivity = .checking
-        let stats = await ApiClient.fetchStats()
+        isCheckingFreshness = true
+        // Short timeout: this is a best-effort freshness ping. A sleeping or
+        // broken server must resolve fast instead of hanging the indicator.
+        let stats = await ApiClient.fetchStats(timeout: 8)
         serverStats = stats
         serverReachable = stats != nil
         if stats != nil, var m = metadata {
@@ -163,7 +184,7 @@ final class ProtectionCenter: ObservableObject {
             try? SharedStore.saveMetadata(m)
             metadata = m
         }
-        updateActivity = .idle
+        isCheckingFreshness = false
     }
 
     /// The "Update Protection Database" action (also used for the automatic
@@ -173,12 +194,15 @@ final class ProtectionCenter: ObservableObject {
         guard !updateActivity.isBusy else { return }
         guard storageAvailable else { return }
         lastUpdateOutcomeKey = nil
-        updateActivity = .updating(phaseKey: "sp_phase_contacting", detail: nil)
+        updateStartedAt = Date()
+        updateRunToken &+= 1
+        let token = updateRunToken
+        updateActivity = .updating(phaseKey: "sp_phase_contacting", detail: nil, progress: 0)
 
         do {
             let outcome = try await ProtectionUpdateEngine.performUpdate(force: force) { phase in
                 Task { @MainActor in
-                    ProtectionCenter.shared.reflect(phase: phase)
+                    ProtectionCenter.shared.reflect(phase: phase, token: token)
                 }
             }
             switch outcome {
@@ -198,24 +222,39 @@ final class ProtectionCenter: ObservableObject {
             lastUpdateOutcomeKey = "err_update_generic"
         }
 
+        // Invalidate the run BEFORE going idle so any late progress task is
+        // dropped instead of reviving the bar.
+        updateRunToken &+= 1
         updateActivity = .idle
+        updateStartedAt = nil
         refreshLocalState()
-        serverStats = await ApiClient.fetchStats() ?? serverStats
+        // Best-effort freshness counters; short timeout so a dead server
+        // doesn't leave a trailing operation hanging for 20s.
+        serverStats = await ApiClient.fetchStats(timeout: 8) ?? serverStats
         if serverStats != nil { serverReachable = true }
     }
 
-    private func reflect(phase: ProtectionUpdateEngine.Phase) {
+    /// Maps engine phases onto one overall 0…1 progress scale. Weights are
+    /// wall-time-based: downloads dominate (3–72%), building is CPU-bound
+    /// (72–92%), the rest is bookkeeping. A callback whose `token` is no
+    /// longer current belongs to a finished/superseded run and is ignored.
+    private func reflect(phase: ProtectionUpdateEngine.Phase, token: Int) {
+        guard token == updateRunToken else { return }
         switch phase {
         case .contactingServer:
-            updateActivity = .updating(phaseKey: "sp_phase_contacting", detail: nil)
-        case .downloading(let feed, let index, let total):
-            updateActivity = .updating(phaseKey: "sp_phase_downloading", detail: "\(index)/\(total) · \(feed)")
-        case .building:
-            updateActivity = .updating(phaseKey: "sp_phase_building", detail: nil)
+            updateActivity = .updating(phaseKey: "sp_phase_contacting", detail: nil, progress: 0.02)
+        case .downloading(_, _, let fraction, let detail):
+            updateActivity = .updating(phaseKey: "sp_phase_downloading", detail: detail,
+                                       progress: 0.03 + fraction * 0.69)
+        case .building(let inserted, let estimatedTotal):
+            let fraction = estimatedTotal.map { min(Double(inserted) / Double(max($0, 1)), 1) }
+            updateActivity = .updating(phaseKey: "sp_phase_building",
+                                       detail: inserted > 0 ? inserted.formatted() : nil,
+                                       progress: fraction.map { 0.72 + $0 * 0.20 })
         case .validating:
-            updateActivity = .updating(phaseKey: "sp_phase_validating", detail: nil)
+            updateActivity = .updating(phaseKey: "sp_phase_validating", detail: nil, progress: 0.94)
         case .activating:
-            updateActivity = .updating(phaseKey: "sp_phase_activating", detail: nil)
+            updateActivity = .updating(phaseKey: "sp_phase_activating", detail: nil, progress: 0.98)
         }
     }
 
