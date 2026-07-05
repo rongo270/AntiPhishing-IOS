@@ -19,6 +19,18 @@
  * the one that gets checked.
  */
 
+// 1. בודק שהקוד רץ רק בחלון הראשי ולא בתוך iframe.
+// 2. בודק שהכתובת היא HTTP או HTTPS.
+// 3. שולח את הכתובת ל־background.js לבדיקה.
+// 4. אם התוצאה בטוחה או אחרת שאינה malicious — מציג toast אם צריך.
+// 5. אם התוצאה malicious — עוצר את טעינת האתר.
+// 6. מוחק את תוכן העמוד ומציג מסך אזהרה.
+// 7. מאפשר למשתמש לחזור אחורה.
+// 8. אם המשתמש בוחר Continue Anyway — שולח בקשה לאשר את הדומיין זמנית.
+// 9. טוען את האתר מחדש אחרי שהאישור נשמר.
+
+
+
 (async () => {
     if (window.top !== window) return; // top frame only
     const pageUrl = location.href;

@@ -34,6 +34,20 @@
  * wrong verdict.
  */
 
+
+// 1. מקבל בקשות מ־content.js.
+// 2. מנרמל את הדומיין לצורך cache.
+// 3. בודק אם מצב toast פעיל.
+// 4. אם toast כבוי — בודק אם יש תשובת safe שמורה ב־cache.
+// 5. אם אין cache מתאים — שולח את ה־URL ל־Swift דרך sendNativeMessage.
+// 6. שומר את גרסת מסד הנתונים שהתקבלה.
+// 7. שומר תשובות safe ב־cache.
+// 8. מחזיר ל־content.js את ה־verdict והפרטים.
+// 9. מטפל בבקשת allowDomain.
+// 10. מטפל בבקשת closeTab.
+// 11. מטפל בבקשת getPopupStatus.
+
+
 const SAFE_CACHE_TTL_MS = 12 * 60 * 60 * 1000; // re-verify a domain twice a day
 const CACHE_LIMIT = 500;                       // max cached safe domains
 

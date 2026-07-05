@@ -29,6 +29,16 @@
 //  it as the only available evidence that the user enabled the extension
 //  (iOS offers no API to query Safari extension state).
 //
+//
+// 1. מקבל את ההודעה מ־background.js.
+// 2. מוציא ממנה את action.
+// 3. רושם heartbeat כדי שהאפליקציה תדע שהתוסף היה פעיל.
+// 4. אם action הוא checkDomain — מפעיל את בדיקת האתר.
+// 5. אם action הוא allowDomain — שומר אישור זמני.
+// 6. אם action הוא getStatus — מחזיר את מצב ההגנה.
+// 7. אורז את התוצאה בתוך NSExtensionItem.
+// 8. מחזיר את התשובה ל־JavaScript.
+
 
 import SafariServices
 import os.log
@@ -107,6 +117,13 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
     /// Only the ML step (reached when the database has no match and lexical
     /// analysis found no obvious signal) sends the page's host to the server
     /// — see ext_guide_note in Localization.swift, which discloses this.
+
+    //1. מנרמל ל־login.example.com.
+    //2. בודק שההגנה פעילה.
+    //3. בודק allowlist.
+    //4. בודק SQLite.
+    //5. בודק ניתוח לקסיקלי.
+    //6. פונה ל־ML רק אם עדיין אין החלטה.
     private static func handleCheckDomain(_ dict: [String: Any]) async -> [String: Any] {
         guard let rawURL = dict["url"] as? String,
               let host = DomainNormalizer.normalizeHost(from: rawURL) else {
