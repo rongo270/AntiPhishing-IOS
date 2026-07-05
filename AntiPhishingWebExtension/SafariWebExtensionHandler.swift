@@ -6,18 +6,24 @@
 //  read App Group files, so every protection decision funnels through this
 //  handler via browser.runtime.sendNativeMessage:
 //
-//    {action: "checkDomain", url}   → verdict from the LOCAL database:
-//                                     allowlist check → SQLite suffix lookup.
-//                                     No network. No page URL ever leaves
-//                                     the device from here.
+//    {action: "checkDomain", url}   → verdict, checked in order: allowlist →
+//                                     SQLite malicious-domain database →
+//                                     on-device lexical analysis → (only if
+//                                     still undecided) the ML server, exactly
+//                                     mirroring CheckPipeline.swift's 3-step
+//                                     pipeline used by the app's own link
+//                                     check. Only that last step, and only for
+//                                     pages not already resolved locally,
+//                                     sends the page's host to the server.
 //    {action: "allowDomain", domain}→ "Continue Anyway": stores a temporary
 //                                     approval in the shared allowlist.
 //    {action: "getStatus"}          → database/protection status for the
 //                                     popup UI.
 //
 //  Shared code: SharedStore / ProtectionDatabase / DomainNormalizer /
-//  AllowlistStore are the same source files the app compiles — both sides
-//  normalize and look up domains identically by construction.
+//  AllowlistStore / LexicalAnalyzer / ApiClient are the same source files the
+//  app compiles — both sides normalize, look up and score domains identically
+//  by construction.
 //
 //  Every request also stamps a heartbeat in the shared defaults; the app uses
 //  it as the only available evidence that the user enabled the extension
@@ -48,20 +54,30 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
         // Evidence for the app's "extension enabled" status row.
         SharedStore.recordExtensionHeartbeat()
 
-        var response: [String: Any] = ["ok": false, "error": "unknown action"]
-        if let dict = message as? [String: Any], let action = dict["action"] as? String {
-            switch action {
-            case "checkDomain":
-                response = Self.handleCheckDomain(dict)
-            case "allowDomain":
-                response = Self.handleAllowDomain(dict)
-            case "getStatus":
-                response = Self.handleGetStatus()
-            default:
-                os_log(.default, log: log, "unknown native action: %{public}@", action)
-            }
+        guard let dict = message as? [String: Any], let action = dict["action"] as? String else {
+            Self.complete(context, with: ["ok": false, "error": "unknown action"])
+            return
         }
 
+        switch action {
+        case "checkDomain":
+            // The only action that may reach the ML server, so it's the only
+            // one that needs to run off the (synchronous) beginRequest call —
+            // completeRequest is fine to call later, from the Task.
+            Task {
+                Self.complete(context, with: await Self.handleCheckDomain(dict))
+            }
+        case "allowDomain":
+            Self.complete(context, with: Self.handleAllowDomain(dict))
+        case "getStatus":
+            Self.complete(context, with: Self.handleGetStatus())
+        default:
+            os_log(.default, log: log, "unknown native action: %{public}@", action)
+            Self.complete(context, with: ["ok": false, "error": "unknown action"])
+        }
+    }
+
+    private static func complete(_ context: NSExtensionContext, with response: [String: Any]) {
         let item = NSExtensionItem()
         if #available(iOS 15.0, macOS 11.0, *) {
             item.userInfo = [SFExtensionMessageKey: response]
@@ -73,13 +89,25 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
 
     // MARK: - Actions
 
-    /// Local-only verdict for one page URL. Response verdicts:
+    /// Short timeout for the ML call made from here: this gates a live page
+    /// load, unlike the app's own "check a link" screen where a 60s wait
+    /// behind a spinner is acceptable. A slow/asleep server fails open
+    /// (verdict "safe") rather than hold the page.
+    private static let mlTimeout: TimeInterval = 6
+
+    /// Verdict for one page URL. Response verdicts:
     ///   "off"          protection switch disabled in the app
     ///   "unprotected"  no database downloaded yet / storage failure
     ///   "allowlisted"  covered by a user "Continue Anyway" approval
-    ///   "malicious"    matched the malicious-domain database
-    ///   "safe"         not in the database
-    private static func handleCheckDomain(_ dict: [String: Any]) -> [String: Any] {
+    ///   "malicious"    matched the malicious-domain database, an obvious
+    ///                  lexical signal, or the ML model
+    ///   "safe"         not in the database, and lexical analysis + the ML
+    ///                  model (or a timeout/error from it) found nothing
+    ///
+    /// Only the ML step (reached when the database has no match and lexical
+    /// analysis found no obvious signal) sends the page's host to the server
+    /// — see ext_guide_note in Localization.swift, which discloses this.
+    private static func handleCheckDomain(_ dict: [String: Any]) async -> [String: Any] {
         guard let rawURL = dict["url"] as? String,
               let host = DomainNormalizer.normalizeHost(from: rawURL) else {
             return ["ok": false, "error": "invalid url"]
@@ -124,7 +152,33 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
             response["matchedDomain"] = match.matchedDomain
             response["source"] = match.source
             response["threatType"] = match.threatType
-        } else {
+            return response
+        }
+
+        // Not in the local database — fall through exactly like
+        // CheckPipeline.swift: obvious lexical signals block without a
+        // network call; anything still undecided goes to the ML model.
+        let lexical = LexicalAnalyzer.analyze(rawURL)
+        if lexical.isObviouslyMalicious {
+            response["verdict"] = "malicious"
+            response["matchedDomain"] = host
+            response["source"] = "Lexical Analysis"
+            response["threatType"] = "lexical"
+            response["explanation"] = lexical.flags.prefix(3).joined(separator: "\n")
+            return response
+        }
+
+        switch await ApiClient.scoreLexical(rawURL, features: lexical.features, timeout: mlTimeout) {
+        case .malicious(let explanation, let source, let confidence, let matchType):
+            response["verdict"] = "malicious"
+            response["matchedDomain"] = host
+            response["source"] = source ?? "ML Model"
+            response["threatType"] = matchType
+            response["explanation"] = explanation
+            response["confidence"] = confidence
+        case .unknown, .whitelisted, .error:
+            // Server said safe, or was unreachable/slow — fail open, never
+            // hold the page hostage to a cold-starting free-tier server.
             response["verdict"] = "safe"
         }
         return response

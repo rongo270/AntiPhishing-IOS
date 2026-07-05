@@ -11,11 +11,15 @@
  *      confirmation in Safari" toggle is on — verification mode wants a
  *      live check, and a visible toast, on every page load.)
  *   3. Native message to SafariWebExtensionHandler (Swift), which checks the
- *      shared allowlist and the on-device SQLite malicious-domain database.
- *
- *   There are NO server calls here: the primary check is fully local for
- *   speed, privacy and offline protection. The database itself is downloaded
- *   and refreshed by the AntiPhishing app.
+ *      shared allowlist and the on-device SQLite malicious-domain database —
+ *      still fully local, no network, for every domain the database already
+ *      knows about (safe or malicious). Only when the database has no match
+ *      does the native side fall through to on-device lexical analysis and,
+ *      if still undecided, one ML-scoring request to the server for that
+ *      host (short timeout; fails open to "safe" if the server is slow or
+ *      unreachable, so a cold-starting free-tier server never holds the page
+ *      hostage). See ext_guide_note in the app's Localization.swift, which
+ *      discloses this to the user.
  *
  * Cache invalidation: the native handler returns the active database version
  * with every reply. Cached safe verdicts are tagged with the version they
@@ -192,7 +196,11 @@ async function evaluateUrl(rawUrl) {
                 host,
                 matchedDomain: native.matchedDomain || host,
                 source: native.source || null,
-                threatType: native.threatType || null
+                threatType: native.threatType || null,
+                // Present for lexical/ML verdicts (not local-DB matches) —
+                // the human-readable "why" content.js shows on the warning page.
+                explanation: native.explanation || null,
+                confidence: typeof native.confidence === "number" ? native.confidence : null
             };
         case "allowlisted":
             return { verdict: "allowlisted", host, toast };

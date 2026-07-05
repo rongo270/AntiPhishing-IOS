@@ -14,6 +14,10 @@
 //                           update-check signal; the server has no bulk
 //                           download or version endpoint)
 //
+//  Compiled into BOTH the app target and the AntiPhishingWebExtension target
+//  (lives in Shared) — the extension calls scoreLexical with a short timeout
+//  when its local database has no match for a page Safari is loading.
+//
 
 import Foundation
 
@@ -38,8 +42,10 @@ enum ApiClient {
 
     // Long timeout on purpose: Render's free tier sleeps after ~15 min idle and
     // takes ~50s to wake on the first request — mirrors the Android client's
-    // 60s read timeout so cold starts don't spuriously fail.
-    private static let timeout: TimeInterval = 60
+    // 60s read timeout so cold starts don't spuriously fail. Callers gating a
+    // page load in real time (the Safari extension) pass a much shorter
+    // timeout instead — see scoreLexical.
+    private static let defaultTimeout: TimeInterval = 60
 
     // MARK: Public API
 
@@ -102,15 +108,18 @@ enum ApiClient {
     }
 
     /// Step 3 — send the URL and its lexical feature vector to the ML model.
-    static func scoreLexical(_ url: String, features: [String: Double]) async -> CheckResult {
+    /// `timeout` defaults to the generous 60s used by the app's own check
+    /// flow; the Safari extension passes a short timeout instead since this
+    /// call gates a live page load.
+    static func scoreLexical(_ url: String, features: [String: Double], timeout: TimeInterval = defaultTimeout) async -> CheckResult {
         let body: [String: Any] = ["url": url, "features": features]
-        return await post(path: "/api/score", body: body, serverLabel: "ML server")
+        return await post(path: "/api/score", body: body, serverLabel: "ML server", timeout: timeout)
     }
 
     // MARK: Helpers
 
-    private static func post(path: String, body: [String: Any], serverLabel: String) async -> CheckResult {
-        guard let (data, code) = await rawPost(path: path, body: body) else {
+    private static func post(path: String, body: [String: Any], serverLabel: String, timeout: TimeInterval = defaultTimeout) async -> CheckResult {
+        guard let (data, code) = await rawPost(path: path, body: body, timeout: timeout) else {
             return .error(message: "Could not reach \(serverLabel)")
         }
         guard code == 200 else {
@@ -119,7 +128,7 @@ enum ApiClient {
         return parseResponse(data)
     }
 
-    private static func rawPost(path: String, body: [String: Any]) async -> (Data, Int)? {
+    private static func rawPost(path: String, body: [String: Any], timeout: TimeInterval = defaultTimeout) async -> (Data, Int)? {
         guard let url = URL(string: baseURL + path) else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"

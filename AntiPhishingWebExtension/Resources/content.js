@@ -141,10 +141,17 @@
         h1.style.cssText = "font-size:22px;font-weight:700;color:#C62828;margin:16px 0 8px;";
         wrap.appendChild(h1);
 
+        // Local-database matches are a confirmed listing; lexical/ML verdicts
+        // are this device's own risk analysis — worded differently so the
+        // page never overclaims certainty it doesn't have.
+        const isAnalysisVerdict = res.threatType === "lexical" || res.threatType === "ml_model";
+
         const subtitle = doc.createElement("p");
-        subtitle.textContent =
-            "This site is listed in the AntiPhishing threat database. It may try to steal " +
-            "passwords, payment details or personal information.";
+        subtitle.textContent = isAnalysisVerdict
+            ? "AntiPhishing's on-device risk analysis flagged this site. It may try to steal " +
+              "passwords, payment details or personal information."
+            : "This site is listed in the AntiPhishing threat database. It may try to steal " +
+              "passwords, payment details or personal information.";
         subtitle.style.cssText = "font-size:14px;line-height:20px;color:#6B4B4B;margin:0 0 16px;";
         wrap.appendChild(subtitle);
 
@@ -161,6 +168,21 @@
         }
         if (res.source) {
             card.appendChild(detailRow("Listed by", humanSource(res.source), false));
+        }
+        if (typeof res.confidence === "number") {
+            card.appendChild(detailRow("Risk score", res.confidence + "%", false));
+        }
+        if (res.explanation) {
+            const reasonWrap = doc.createElement("div");
+            reasonWrap.style.cssText = "margin-top:10px;padding-top:10px;border-top:1px solid rgba(198,40,40,.15);";
+            res.explanation.split("\n").forEach((line) => {
+                if (!line.trim()) return;
+                const p = doc.createElement("div");
+                p.textContent = line;
+                p.style.cssText = "font-size:13px;line-height:19px;color:#7F1D1D;";
+                reasonWrap.appendChild(p);
+            });
+            card.appendChild(reasonWrap);
         }
         wrap.appendChild(card);
 
@@ -200,7 +222,9 @@
         wrap.appendChild(proceedBtn);
 
         const brand = doc.createElement("div");
-        brand.textContent = "🛡️ Protected by AntiPhishing · checked on this device";
+        brand.textContent = res.threatType === "ml_model"
+            ? "🛡️ Protected by AntiPhishing · risk model on the server"
+            : "🛡️ Protected by AntiPhishing · checked on this device";
         brand.style.cssText = "font-size:12px;color:#9E9E9E;margin-top:24px;";
         wrap.appendChild(brand);
 
@@ -229,6 +253,8 @@
         switch (type) {
             case "blacklist": return "Phishing / malicious site";
             case "threat_intel": return "Malware / threat-intelligence listing";
+            case "lexical": return "Suspicious URL structure";
+            case "ml_model": return "Flagged by risk-scoring model";
             default: return type;
         }
     }

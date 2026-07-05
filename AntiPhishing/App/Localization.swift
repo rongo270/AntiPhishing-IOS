@@ -136,7 +136,7 @@ enum L10n {
         "ext_guide_step2": "Tap AntiPhishing and turn on Allow Extension.",
         "ext_guide_step3": "Under Permissions, allow access for All Websites so pages can be checked.",
         "ext_guide_step4": "Return here — the status updates after the extension checks its first page in Safari.",
-        "ext_guide_note": "The extension reads page addresses only to compare them with the database stored on your device. Addresses are never sent to a server.",
+        "ext_guide_note": "The extension checks page addresses against the threat database stored on your device first, entirely offline. Only when a site isn't already known safe or malicious is its address sent to AntiPhishing's server for a deeper risk check.",
         "ext_guide_open_settings": "Open Settings",
         // Allowlist management
         "allowlist_title": "Approved Domains",
@@ -275,7 +275,7 @@ enum L10n {
         "ext_guide_step2": "הקש על AntiPhishing והפעל את \"אפשר תוסף\".",
         "ext_guide_step3": "תחת הרשאות, אשר גישה ל\"כל אתרי האינטרנט\" כדי שניתן יהיה לבדוק דפים.",
         "ext_guide_step4": "חזור לכאן — הסטטוס יתעדכן אחרי שהתוסף יבדוק את הדף הראשון ב-Safari.",
-        "ext_guide_note": "התוסף קורא כתובות דפים רק כדי להשוות אותן למסד הנתונים שבמכשיר. כתובות אינן נשלחות לשרת.",
+        "ext_guide_note": "התוסף בודק כתובות דפים קודם כל מול מסד הנתונים שבמכשיר, לגמרי במצב לא מקוון. רק כשאתר אינו ידוע כבטוח או כזדוני, הכתובת שלו נשלחת לשרת של AntiPhishing לבדיקת סיכון מעמיקה יותר.",
         "ext_guide_open_settings": "פתח הגדרות",
         // Allowlist management
         "allowlist_title": "דומיינים מאושרים",
