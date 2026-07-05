@@ -17,6 +17,26 @@
 //    • no internet and no database      → .notReadyOffline
 //    • shared storage / DB failure      → .storageError
 //
+// 1. טוען את מצב מסד הנתונים המקומי.
+// 2. בודק אם Safari Extension נראה פעיל.
+// 3. בודק אם השרת זמין.
+// 4. בודק אם קיימת גרסת DB חדשה.
+// 5. מחליט איזה סטטוס להציג למשתמש.
+// 6. מפעיל עדכון DB כשהמשתמש לוחץ Update.
+// 7. מעדכן progress בזמן ההורדה והבנייה.
+// 8. שומר תוצאת הצלחה או שגיאה.
+// 9. מעדכן את SwiftUI בכל שינוי.
+
+// האפליקציה נפתחת.
+// ProtectionCenter קורא metadata, DB ו-heartbeat.
+// הוא שולח בקשת /api/stats קצרה.
+// summary מחליט איזה מצב להציג.
+// המשתמש לוחץ Update.
+// ProtectionUpdateEngine מוריד ובונה DB.
+// ProtectionCenter מעדכן progress.
+// בסיום הוא טוען מחדש את ה־metadata וה־DB.
+// SwiftUI מתעדכן אוטומטית.
+
 
 import Foundation
 import Combine
@@ -238,6 +258,11 @@ final class ProtectionCenter: ObservableObject {
     /// wall-time-based: downloads dominate (3–72%), building is CPU-bound
     /// (72–92%), the rest is bookkeeping. A callback whose `token` is no
     /// longer current belongs to a finished/superseded run and is ignored.
+    // contacting server → 2%
+    // downloading       → 3% עד 72%
+    // building          → 72% עד 92%
+    // validating        → 94%
+    // activating        → 98%
     private func reflect(phase: ProtectionUpdateEngine.Phase, token: Int) {
         guard token == updateRunToken else { return }
         switch phase {

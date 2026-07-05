@@ -12,6 +12,17 @@
 //          - otherwise             → Step 3: ApiClient.scoreLexical (ML server)
 //
 
+
+// 1. בודק SQLite מקומי.
+// 2. אם נמצאה התאמה — malicious ומסיים.
+// 3. אם מצב פיתוח מקומי פעיל — בודק LocalUrlLists.
+// 4. אחרת — פונה ל־Flask דרך checkUrl או checkQrUrl.
+// 5. אם התוצאה אינה Unknown — מחזיר אותה.
+// 6. אם Unknown — מריץ LexicalAnalyzer.
+// 7. אם ברור שה־URL זדוני — מחזיר malicious בביטחון 95.
+// 8. אחרת — שולח את ה־URL וה־features לשרת ML.
+// 9. מחזיר את תוצאת ה־ML.
+
 import Foundation
 
 /// When false, the pipeline checks URLs against the live Flask backend via
